@@ -52,6 +52,42 @@
 
   #panel-title .logo-icon { font-size: 18px; }
 
+  /* ── Status dot ── */
+  #conn-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+  }
+
+  #conn-status.idle    { background: #f3f4f6; color: #9ca3af; }
+  #conn-status.thinking { background: #eff6ff; color: #3b82f6; }
+  #conn-status.connected { background: #f0fdf4; color: #16a34a; }
+  #conn-status.error   { background: #fef2f2; color: #dc2626; }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background 0.3s ease;
+  }
+
+  #conn-status.idle     .status-dot { background: #d1d5db; }
+  #conn-status.thinking .status-dot { background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }
+  #conn-status.connected .status-dot { background: #16a34a; }
+  #conn-status.error    .status-dot { background: #dc2626; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.75); }
+  }
+
   .header-actions {
     display: flex;
     align-items: center;
@@ -325,9 +361,18 @@
       <span id="txt-panel-title">תובנות עסקיות</span>
     </div>
     <div class="header-actions">
+      <div id="conn-status" class="idle">
+        <span class="status-dot"></span>
+        <span id="conn-status-text">—</span>
+      </div>
       <button class="icon-btn" id="refresh-btn" title="רענן" onclick="fetchAndAnalyze()">↻</button>
       <button class="icon-btn" id="settings-btn" title="הגדרות" onclick="openSettings()">⚙️</button>
     </div>
+  </div>
+
+  <div id="thinking-bar" style="display:none; padding:8px 14px; background:#eff6ff; border-bottom:1px solid #dbeafe; font-size:11.5px; color:#3b82f6; display:none; align-items:center; gap:7px;">
+    <span style="animation:spin 1s linear infinite; display:inline-block; font-size:13px;">⟳</span>
+    <span id="thinking-text">מתחבר ל-SAP...</span>
   </div>
 
   <div id="cards-container">
@@ -440,6 +485,30 @@ const T = {
     'gemini-prompt-lang': 'English',
   }
 };
+
+// ─────────────────────────────────────────────
+//  Connection status
+// ─────────────────────────────────────────────
+function setStatus(state, msg) {
+  const el = document.getElementById('conn-status');
+  const txt = document.getElementById('conn-status-text');
+  const bar = document.getElementById('thinking-bar');
+  const barTxt = document.getElementById('thinking-text');
+  el.className = state;
+  const labels = {
+    idle:      { he: '—',            en: '—' },
+    thinking:  { he: 'מחשב...',      en: 'Thinking...' },
+    connected: { he: 'מחובר',        en: 'Connected' },
+    error:     { he: 'שגיאה',        en: 'Error' },
+  };
+  txt.textContent = msg ?? labels[state]?.[settings.lang] ?? state;
+  if (state === 'thinking') {
+    bar.style.display = 'flex';
+    barTxt.textContent = msg ?? (settings.lang === 'he' ? 'מתחבר ל-SAP...' : 'Connecting to SAP...');
+  } else {
+    bar.style.display = 'none';
+  }
+}
 
 // ─────────────────────────────────────────────
 //  State & Settings
@@ -804,12 +873,15 @@ async function fetchAndAnalyze() {
   container.appendChild(ls);
 
   try {
+    setStatus('thinking', settings.lang === 'he' ? 'מתחבר ל-SAP...' : 'Connecting to SAP...');
     const data = await fetchAllData();
+
+    setStatus('thinking', settings.lang === 'he' ? 'מנתח עם Gemini AI...' : 'Analyzing with Gemini AI...');
     const total = Object.values(data).reduce((s, arr) => s + arr.length, 0);
 
     if (total === 0) {
       document.getElementById('loading-state').style.display = 'none';
-      // No data — build a simple insight set
+      setStatus('connected');
       renderCards([{
         title: t('no-data'),
         body: `Opportunities: 0, Quotes: ${data.salesQuotes.length}, Leads: ${data.leads.length}, Tasks: 0`,
@@ -820,10 +892,14 @@ async function fetchAndAnalyze() {
       }]);
     } else {
       const insights = await analyzeWithGemini(data);
+      setStatus('connected');
       renderCards(insights);
     }
   } catch (err) {
     const isSap = err.message.includes('SAP') || err.message.includes('fetch') || err.message.includes('HTTP 4') || err.message.includes('HTTP 5');
+    setStatus('error', isSap
+      ? (settings.lang === 'he' ? 'שגיאת SAP' : 'SAP Error')
+      : (settings.lang === 'he' ? 'שגיאת AI' : 'AI Error'));
     renderError(isSap ? t('fetch-error') : t('ai-error'), err.message);
   } finally {
     _running = false;
@@ -836,6 +912,7 @@ async function fetchAndAnalyze() {
 // ─────────────────────────────────────────────
 loadSettings();
 applyLocale();
+setStatus('idle');
 
 if (!settings.sapUrl || !settings.sapUser || !settings.sapPass || !settings.geminiToken) {
   openSettings();
