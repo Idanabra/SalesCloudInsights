@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SalesCloud Insights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: transparent;
+    font-family: 'Inter', 'Heebo', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 24px;
+  }
+
+  /* ── Panel ── */
+  #panel {
+    width: 380px;
+    background: rgba(255,255,255,0.97);
+    border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+
+  /* ── Header ── */
+  #panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+  }
+
+  #panel-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1a1a2e;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  #panel-title .logo-icon { font-size: 18px; }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #666;
+    transition: background 0.15s, color 0.15s;
+  }
+  .icon-btn:hover { background: rgba(0,0,0,0.07); color: #333; }
+
+  #refresh-btn.spinning { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Cards container ── */
+  #cards-container {
+    padding: 12px 12px 14px;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ── Notification Card ── */
+  .notif-card {
+    border-radius: 11px;
+    padding: 12px 14px;
+    border-left: 4px solid transparent;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    animation: fadeIn 0.4s ease both;
+    position: relative;
+    overflow: hidden;
+  }
+
+  [dir="rtl"] .notif-card { border-left: none; border-right: 4px solid transparent; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .notif-card.red    { background: #fff0f0; border-color: #e53935; }
+  .notif-card.orange { background: #fff8f0; border-color: #fb8c00; }
+  .notif-card.yellow { background: #fffde7; border-color: #f9a825; }
+  .notif-card.error  { background: #fff0f0; border-color: #e53935; }
+
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .card-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+  .card-text { flex: 1; }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1a1a2e;
+    line-height: 1.3;
+  }
+
+  .card-body {
+    font-size: 12px;
+    color: #444;
+    line-height: 1.5;
+    margin-top: 3px;
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 2px;
+  }
+
+  .meta-tag {
+    font-size: 10.5px;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+
+  .meta-tag.owner   { background: rgba(79,70,229,0.1); color: #4f46e5; }
+  .meta-tag.account { background: rgba(16,185,129,0.1); color: #059669; }
+
+  /* ── Loading ── */
+  #loading-state {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 16px;
+    gap: 10px;
+    color: #888;
+    font-size: 13px;
+  }
+
+  .spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid #e0e0e0;
+    border-top-color: #4f46e5;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* ── Empty ── */
+  #empty-state {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    color: #aaa;
+    font-size: 13px;
+    gap: 6px;
+    text-align: center;
+  }
+
+  #empty-state .empty-icon { font-size: 28px; }
+
+  /* ── Modal overlay ── */
+  #modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  #modal-overlay.open { display: flex; }
+
+  /* ── Modal ── */
+  #settings-modal {
+    background: #fff;
+    border-radius: 18px;
+    padding: 28px;
+    width: min(420px, 90vw);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    animation: modalIn 0.25s ease both;
+  }
+
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  #settings-modal h2 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1a1a2e;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .field-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .field-group input, .field-group select {
+    padding: 9px 12px;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-family: inherit;
+    color: #1a1a2e;
+    outline: none;
+    transition: border-color 0.15s;
+    background: #fafafa;
+    width: 100%;
+  }
+  .field-group input:focus, .field-group select:focus {
+    border-color: #4f46e5;
+    background: #fff;
+  }
+
+  .lang-toggle {
+    display: flex;
+    gap: 8px;
+  }
+
+  .lang-btn {
+    flex: 1;
+    padding: 8px;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 9px;
+    background: #fafafa;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #888;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .lang-btn.active {
+    border-color: #4f46e5;
+    background: #eef2ff;
+    color: #4f46e5;
+  }
+
+  .modal-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding-top: 4px;
+  }
+
+  .btn {
+    padding: 9px 20px;
+    border-radius: 9px;
+    border: none;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: #4f46e5; color: #fff; }
+  .btn-primary:hover { background: #4338ca; }
+  .btn-secondary { background: #f3f4f6; color: #555; }
+  .btn-secondary:hover { background: #e5e7eb; }
+
+  /* ── Footer ── */
+  #panel-footer {
+    padding: 8px 14px;
+    border-top: 1px solid rgba(0,0,0,0.05);
+    font-size: 10.5px;
+    color: #bbb;
+    text-align: center;
+    background: #fafbff;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Floating Panel ── -->
+<div id="panel">
+  <div id="panel-header">
+    <div id="panel-title">
+      <span class="logo-icon">✨</span>
+      <span id="txt-panel-title">תובנות עסקיות</span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="refresh-btn" title="רענן" onclick="fetchAndAnalyze()">↻</button>
+      <button class="icon-btn" id="settings-btn" title="הגדרות" onclick="openSettings()">⚙️</button>
+    </div>
+  </div>
+
+  <div id="cards-container">
+    <div id="loading-state">
+      <div class="spinner"></div>
+      <span id="txt-loading">טוען נתונים...</span>
+    </div>
+    <div id="empty-state">
+      <span class="empty-icon">🎯</span>
+      <span id="txt-empty">אין תובנות כרגע. לחץ רענן לנסות שוב.</span>
+    </div>
+  </div>
+
+  <div id="panel-footer">
+    <span id="txt-footer">מופעל על ידי SAP Sales Cloud + Gemini AI</span>
+  </div>
+</div>
+
+<!-- ── Settings Modal ── -->
+<div id="modal-overlay" onclick="overlayClick(event)">
+  <div id="settings-modal">
+    <h2>⚙️ <span id="txt-settings-title">הגדרות חיבור</span></h2>
+
+    <div class="field-group">
+      <label id="txt-sap-url-label">SAP Base URL</label>
+      <input type="url" id="cfg-sap-url" placeholder="https://my-tenant.crm.cloud.sap" />
+    </div>
+
+    <div class="field-group">
+      <label id="txt-sap-user-label">שם משתמש SAP</label>
+      <input type="text" id="cfg-sap-user" placeholder="username" autocomplete="username" />
+    </div>
+
+    <div class="field-group">
+      <label id="txt-sap-pass-label">סיסמת SAP</label>
+      <input type="password" id="cfg-sap-pass" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+
+    <div class="field-group">
+      <label id="txt-gemini-label">Gemini API Token</label>
+      <input type="password" id="cfg-gemini-token" placeholder="AIza..." />
+    </div>
+
+    <div class="field-group">
+      <label id="txt-lang-label">שפה / Language</label>
+      <div class="lang-toggle">
+        <button class="lang-btn active" id="lang-he" onclick="selectLang('he')">עברית 🇮🇱</button>
+        <button class="lang-btn" id="lang-en" onclick="selectLang('en')">English 🇬🇧</button>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeSettings()" id="txt-cancel-btn">ביטול</button>
+      <button class="btn btn-primary" onclick="saveSettings()" id="txt-save-btn">שמור והתחל</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  Translations
+// ─────────────────────────────────────────────
+const T = {
+  he: {
+    'panel-title': 'תובנות עסקיות',
+    'loading': 'טוען נתונים מ-SAP...',
+    'empty': 'אין תובנות כרגע. לחץ רענן לנסות שוב.',
+    'footer': 'מופעל על ידי SAP Sales Cloud + Gemini AI',
+    'settings-title': 'הגדרות חיבור',
+    'sap-url-label': 'SAP Base URL',
+    'sap-user-label': 'שם משתמש SAP',
+    'sap-pass-label': 'סיסמת SAP',
+    'gemini-label': 'Gemini API Token',
+    'lang-label': 'שפה / Language',
+    'cancel-btn': 'ביטול',
+    'save-btn': 'שמור והתחל',
+    'refresh-tip': 'רענן',
+    'settings-tip': 'הגדרות',
+    'missing-settings': 'הגדרות חסרות',
+    'missing-body': 'נא למלא את כל פרטי ה-SAP וטוקן Gemini בהגדרות.',
+    'fetch-error': 'שגיאה בטעינת נתונים',
+    'ai-error': 'שגיאה בניתוח AI',
+    'no-data': 'לא נמצאו רשומות פתוחות ב-SAP.',
+    'owner': 'אחראי',
+    'account': 'לקוח',
+    'gemini-prompt-lang': 'עברית',
+  },
+  en: {
+    'panel-title': 'Business Insights',
+    'loading': 'Loading SAP data...',
+    'empty': 'No insights right now. Click refresh to try again.',
+    'footer': 'Powered by SAP Sales Cloud + Gemini AI',
+    'settings-title': 'Connection Settings',
+    'sap-url-label': 'SAP Base URL',
+    'sap-user-label': 'SAP Username',
+    'sap-pass-label': 'SAP Password',
+    'gemini-label': 'Gemini API Token',
+    'lang-label': 'Language',
+    'cancel-btn': 'Cancel',
+    'save-btn': 'Save & Start',
+    'refresh-tip': 'Refresh',
+    'settings-tip': 'Settings',
+    'missing-settings': 'Settings Missing',
+    'missing-body': 'Please fill in your SAP details and Gemini token in Settings.',
+    'fetch-error': 'Data fetch error',
+    'ai-error': 'AI analysis error',
+    'no-data': 'No open records found in SAP.',
+    'owner': 'Owner',
+    'account': 'Account',
+    'gemini-prompt-lang': 'English',
+  }
+};
+
+// ─────────────────────────────────────────────
+//  State & Settings
+// ─────────────────────────────────────────────
+let settings = {
+  sapUrl: '',
+  sapUser: '',
+  sapPass: '',
+  geminiToken: '',
+  lang: 'he',
+};
+
+function loadSettings() {
+  const saved = localStorage.getItem('salescloud_settings');
+  if (saved) {
+    try { Object.assign(settings, JSON.parse(saved)); } catch(e) {}
+  }
+}
+
+function persistSettings() {
+  localStorage.setItem('salescloud_settings', JSON.stringify(settings));
+}
+
+function t(key) { return T[settings.lang]?.[key] ?? T['he'][key] ?? key; }
+
+// ─────────────────────────────────────────────
+//  Localization – apply to DOM
+// ─────────────────────────────────────────────
+const TEXT_MAP = {
+  'txt-panel-title': 'panel-title',
+  'txt-loading': 'loading',
+  'txt-empty': 'empty',
+  'txt-footer': 'footer',
+  'txt-settings-title': 'settings-title',
+  'txt-sap-url-label': 'sap-url-label',
+  'txt-sap-user-label': 'sap-user-label',
+  'txt-sap-pass-label': 'sap-pass-label',
+  'txt-gemini-label': 'gemini-label',
+  'txt-lang-label': 'lang-label',
+  'txt-cancel-btn': 'cancel-btn',
+  'txt-save-btn': 'save-btn',
+};
+
+function applyLocale() {
+  const lang = settings.lang;
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr';
+  document.getElementById('panel').dir = lang === 'he' ? 'rtl' : 'ltr';
+
+  for (const [id, key] of Object.entries(TEXT_MAP)) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t(key);
+  }
+  document.getElementById('refresh-btn').title = t('refresh-tip');
+  document.getElementById('settings-btn').title = t('settings-tip');
+  document.getElementById('lang-he').classList.toggle('active', lang === 'he');
+  document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+}
+
+// ─────────────────────────────────────────────
+//  Settings Modal
+// ─────────────────────────────────────────────
+let _pendingLang = null;
+
+function openSettings() {
+  _pendingLang = null;
+  document.getElementById('cfg-sap-url').value = settings.sapUrl;
+  document.getElementById('cfg-sap-user').value = settings.sapUser;
+  document.getElementById('cfg-sap-pass').value = settings.sapPass;
+  document.getElementById('cfg-gemini-token').value = settings.geminiToken;
+  selectLang(settings.lang, true);
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function overlayClick(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeSettings();
+}
+
+function selectLang(lang, noSave) {
+  _pendingLang = lang;
+  document.getElementById('lang-he').classList.toggle('active', lang === 'he');
+  document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+}
+
+function saveSettings() {
+  const url = document.getElementById('cfg-sap-url').value.trim().replace(/\/$/, '');
+  const user = document.getElementById('cfg-sap-user').value.trim();
+  const pass = document.getElementById('cfg-sap-pass').value;
+  const token = document.getElementById('cfg-gemini-token').value.trim();
+
+  if (!url || !user || !pass || !token) {
+    alert(t('missing-body'));
+    return;
+  }
+
+  settings.sapUrl = url;
+  settings.sapUser = user;
+  settings.sapPass = pass;
+  settings.geminiToken = token;
+  settings.lang = _pendingLang ?? settings.lang;
+  persistSettings();
+  applyLocale();
+  closeSettings();
+  fetchAndAnalyze();
+}
+
+// ─────────────────────────────────────────────
+//  SAP API helpers
+// ─────────────────────────────────────────────
+function basicAuth() {
+  return 'Basic ' + btoa(`${settings.sapUser}:${settings.sapPass}`);
+}
+
+const TODAY = new Date().toISOString().split('T')[0];
+
+async function sapGet(path) {
+  const url = `${settings.sapUrl}${path}`;
+  const resp = await fetch(url, {
+    headers: {
+      'Authorization': basicAuth(),
+      'Accept': 'application/json',
+    },
+  });
+  if (!resp.ok) throw new Error(`SAP ${path} → HTTP ${resp.status}`);
+  const json = await resp.json();
+  // OData v4 uses .value
+  return json.value ?? json.data?.value ?? [];
+}
+
+function extractField(rec, ...keys) {
+  for (const k of keys) {
+    if (rec[k] != null && rec[k] !== '') return rec[k];
+  }
+  return null;
+}
+
+function safeDate(val) {
+  if (!val) return null;
+  // OData date might be "/Date(1234567890000)/" or ISO
+  const m = String(val).match(/\d{13}/);
+  if (m) return new Date(parseInt(m[0])).toISOString().split('T')[0];
+  return String(val).split('T')[0];
+}
+
+// ─────────────────────────────────────────────
+//  Fetch all SAP data
+// ─────────────────────────────────────────────
+async function fetchAllData() {
+  const [rawOpps, rawQuotes, rawLeads, rawTasks] = await Promise.all([
+    sapGet('/sap/c4c/api/v1/opportunity-service/opportunities?$top=100'),
+    sapGet('/sap/c4c/api/v1/sales-quote-service/salesQuotes?$top=100'),
+    sapGet('/sap/c4c/api/v1/lead-service/leads?$top=100'),
+    sapGet('/sap/c4c/api/v1/task-service/tasks?$top=100'),
+  ]);
+
+  const opportunities = rawOpps
+    .filter(r => {
+      const st = extractField(r, 'LifeCycleStatusCode', 'StatusCode', 'status', 'Status');
+      const cd = safeDate(extractField(r, 'CloseDate', 'ExpectedCloseDate', 'closeDate'));
+      return (st == null || ['1','2','Open','open'].includes(String(st)))
+          && cd && cd < TODAY;
+    })
+    .map(r => ({
+      type: 'opportunity',
+      id: r.id ?? r.ObjectID ?? r.opportunityID,
+      owner: extractField(r, 'OwnerName', 'OwnerPartyName', 'ResponsibleName') ?? '—',
+      account: extractField(r, 'AccountName', 'CustomerName', 'BuyerPartyName') ?? '—',
+      date: safeDate(extractField(r, 'CloseDate', 'ExpectedCloseDate')),
+      status: extractField(r, 'LifeCycleStatusCode', 'StatusCode') ?? 'Open',
+    }));
+
+  const salesQuotes = rawQuotes
+    .filter(r => {
+      const st = extractField(r, 'LifeCycleStatusCode', 'StatusCode', 'status', 'Status');
+      return st == null || ['1','2','Open','open'].includes(String(st));
+    })
+    .map(r => ({
+      type: 'quote',
+      id: r.id ?? r.ObjectID,
+      owner: extractField(r, 'OwnerName', 'SalesRepresentativeName') ?? '—',
+      account: extractField(r, 'AccountName', 'CustomerName') ?? '—',
+      date: safeDate(extractField(r, 'ExpirationDate', 'ValidUntilDate')),
+      status: extractField(r, 'LifeCycleStatusCode', 'StatusCode') ?? 'Open',
+    }));
+
+  const leads = rawLeads
+    .filter(r => {
+      const st = extractField(r, 'LifeCycleStatusCode', 'StatusCode', 'status', 'Status');
+      return st == null || ['1','2','Open','open','New'].includes(String(st));
+    })
+    .map(r => ({
+      type: 'lead',
+      id: r.id ?? r.ObjectID,
+      owner: extractField(r, 'OwnerName', 'ResponsibleName') ?? '—',
+      account: extractField(r, 'AccountName', 'CompanyName') ?? '—',
+      date: safeDate(extractField(r, 'CreatedOn', 'CreationDate')),
+      status: extractField(r, 'LifeCycleStatusCode', 'StatusCode') ?? 'Open',
+    }));
+
+  const tasks = rawTasks
+    .filter(r => {
+      const st = extractField(r, 'LifeCycleStatusCode', 'StatusCode', 'status', 'Status');
+      const dd = safeDate(extractField(r, 'DueDate', 'dueDate'));
+      return (st == null || ['1','2','Open','open'].includes(String(st)))
+          && dd && dd < TODAY;
+    })
+    .map(r => ({
+      type: 'task',
+      id: r.id ?? r.ObjectID,
+      owner: extractField(r, 'OwnerName', 'ResponsibleName') ?? '—',
+      account: extractField(r, 'AccountName', 'CustomerName') ?? '—',
+      date: safeDate(extractField(r, 'DueDate', 'dueDate')),
+      status: extractField(r, 'LifeCycleStatusCode', 'StatusCode') ?? 'Open',
+    }));
+
+  return { opportunities, salesQuotes, leads, tasks };
+}
+
+// ─────────────────────────────────────────────
+//  Gemini AI analysis
+// ─────────────────────────────────────────────
+async function analyzeWithGemini(data) {
+  const lang = t('gemini-prompt-lang');
+  const summary = JSON.stringify(data, null, 2);
+
+  const prompt = `You are a CRM business analyst. Analyze the following SAP Sales Cloud data (JSON) and return EXACTLY 3 actionable business insights as a JSON array.
+
+Data:
+${summary}
+
+Today's date: ${TODAY}
+
+Rules:
+- Return ONLY a JSON array, no markdown, no explanation.
+- Each element: { "title": "...", "body": "...", "owner": "...", "account": "...", "severity": "red|orange|yellow", "icon": "task|opportunity|quote|lead" }
+- severity: red = critical/overdue, orange = warning/aging, yellow = informational
+- Insights must be specific: mention names, counts, days overdue. E.g. "3 opportunities from Acme Corp are overdue, the oldest by 14 days"
+- ALL text in title and body must be written in ${lang}.
+- owner and account fields: use the most relevant name from the data (can be "—" if unknown).
+- icon: choose the most relevant type from: task, opportunity, quote, lead.`;
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.geminiToken}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `Gemini HTTP ${resp.status}`);
+  }
+
+  const result = await resp.json();
+  const raw = result?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  // extract JSON array
+  const match = raw.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error('Gemini returned unexpected format');
+  return JSON.parse(match[0]);
+}
+
+// ─────────────────────────────────────────────
+//  Card rendering
+// ─────────────────────────────────────────────
+const TYPE_ICONS = {
+  task: '📋',
+  opportunity: '💼',
+  quote: '📄',
+  lead: '🎯',
+};
+
+function renderCards(insights) {
+  const container = document.getElementById('cards-container');
+  container.innerHTML = '';
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('empty-state').style.display = 'none';
+
+  if (!insights || insights.length === 0) {
+    const es = document.getElementById('empty-state');
+    es.style.display = 'flex';
+    container.appendChild(es);
+    return;
+  }
+
+  insights.slice(0, 3).forEach((ins, i) => {
+    const card = document.createElement('div');
+    card.className = `notif-card ${ins.severity ?? 'yellow'}`;
+    card.style.animationDelay = `${i * 0.1}s`;
+
+    const icon = TYPE_ICONS[ins.icon] ?? '✨';
+    const ownerLabel = t('owner');
+    const accountLabel = t('account');
+
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="card-icon">${icon}</span>
+        <div class="card-text">
+          <div class="card-title">${escHtml(ins.title ?? '')}</div>
+          <div class="card-body">${escHtml(ins.body ?? '')}</div>
+        </div>
+      </div>
+      ${(ins.owner && ins.owner !== '—') || (ins.account && ins.account !== '—') ? `
+      <div class="card-meta">
+        ${ins.owner && ins.owner !== '—' ? `<span class="meta-tag owner">👤 ${escHtml(ins.owner)}</span>` : ''}
+        ${ins.account && ins.account !== '—' ? `<span class="meta-tag account">🏢 ${escHtml(ins.account)}</span>` : ''}
+      </div>` : ''}
+    `;
+    container.appendChild(card);
+  });
+}
+
+function renderError(title, msg) {
+  const container = document.getElementById('cards-container');
+  container.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'notif-card error';
+  card.innerHTML = `
+    <div class="card-top">
+      <span class="card-icon">⚠️</span>
+      <div class="card-text">
+        <div class="card-title">${escHtml(title)}</div>
+        <div class="card-body">${escHtml(msg)}</div>
+      </div>
+    </div>
+  `;
+  container.appendChild(card);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────────
+//  Main fetch + analyze flow
+// ─────────────────────────────────────────────
+let _running = false;
+
+async function fetchAndAnalyze() {
+  if (_running) return;
+  if (!settings.sapUrl || !settings.sapUser || !settings.sapPass || !settings.geminiToken) {
+    openSettings();
+    return;
+  }
+
+  _running = true;
+  const refreshBtn = document.getElementById('refresh-btn');
+  refreshBtn.classList.add('spinning');
+
+  const container = document.getElementById('cards-container');
+  container.innerHTML = '';
+  const ls = document.getElementById('loading-state');
+  ls.style.display = 'flex';
+  container.appendChild(ls);
+
+  try {
+    const data = await fetchAllData();
+    const total = Object.values(data).reduce((s, arr) => s + arr.length, 0);
+
+    if (total === 0) {
+      document.getElementById('loading-state').style.display = 'none';
+      // No data — build a simple insight set
+      renderCards([{
+        title: t('no-data'),
+        body: `Opportunities: 0, Quotes: ${data.salesQuotes.length}, Leads: ${data.leads.length}, Tasks: 0`,
+        owner: '—',
+        account: '—',
+        severity: 'yellow',
+        icon: 'opportunity',
+      }]);
+    } else {
+      const insights = await analyzeWithGemini(data);
+      renderCards(insights);
+    }
+  } catch (err) {
+    const isSap = err.message.includes('SAP') || err.message.includes('fetch') || err.message.includes('HTTP 4') || err.message.includes('HTTP 5');
+    renderError(isSap ? t('fetch-error') : t('ai-error'), err.message);
+  } finally {
+    _running = false;
+    refreshBtn.classList.remove('spinning');
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Init
+// ─────────────────────────────────────────────
+loadSettings();
+applyLocale();
+
+if (!settings.sapUrl || !settings.sapUser || !settings.sapPass || !settings.geminiToken) {
+  openSettings();
+} else {
+  fetchAndAnalyze();
+}
+</script>
+</body>
+</html>
