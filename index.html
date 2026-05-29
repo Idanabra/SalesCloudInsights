@@ -192,10 +192,84 @@
     .btn-primary   { background: #1a73e8; color: #fff; }
     .btn-primary:hover { background: #1557b0; }
 
+    /* Double-click hint */
+    .card { cursor: pointer; }
+    .card:active { opacity: .85; }
+    .card-hint {
+      font-size: 10px; color: #aaa; margin-top: 6px; text-align: end;
+      font-style: italic;
+    }
+
+    /* ── Details modal ── */
+    #detail-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.5); z-index: 2000;
+      align-items: center; justify-content: center;
+    }
+    #detail-overlay.open { display: flex; }
+
+    #detail-modal {
+      background: #fff; border-radius: 16px;
+      width: 500px; max-width: 96vw; max-height: 85vh;
+      display: flex; flex-direction: column;
+      box-shadow: 0 16px 56px rgba(0,0,0,.28);
+      animation: fadeInUp .22s ease;
+      overflow: hidden;
+    }
+    #detail-header {
+      padding: 16px 20px 14px;
+      background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+      color: #fff; display: flex; align-items: center; gap: 10px;
+    }
+    #detail-header .detail-icon { font-size: 22px; }
+    #detail-header h3 { font-size: 15px; font-weight: 700; flex: 1; }
+    #detail-close {
+      background: rgba(255,255,255,.2); border: none; border-radius: 7px;
+      color: #fff; width: 28px; height: 28px; cursor: pointer; font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #detail-close:hover { background: rgba(255,255,255,.35); }
+    #detail-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+
+    .detail-section {
+      margin-bottom: 16px;
+    }
+    .detail-section-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      color: #1a73e8; letter-spacing: .6px; margin-bottom: 8px;
+      padding-bottom: 4px; border-bottom: 1px solid #e8eaed;
+    }
+    .detail-record {
+      background: #f8f9fa; border-radius: 10px; padding: 10px 12px;
+      margin-bottom: 8px; font-size: 12px;
+    }
+    .detail-record:last-child { margin-bottom: 0; }
+    .detail-row {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 3px 0; border-bottom: 1px solid #eee; align-items: baseline;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key {
+      font-weight: 600; color: #5f6368; flex-shrink: 0;
+      min-width: 110px; font-size: 11px;
+    }
+    .detail-val {
+      color: #202124; word-break: break-all; text-align: end;
+    }
+    .detail-val.id-val {
+      font-family: monospace; font-size: 11px;
+      background: #e8f0fe; color: #1a73e8; padding: 1px 5px;
+      border-radius: 4px; cursor: pointer;
+    }
+    .detail-val.id-val:hover { background: #c5d8fb; }
+
     /* Scrollbar */
     #cards-container::-webkit-scrollbar { width: 5px; }
     #cards-container::-webkit-scrollbar-track { background: transparent; }
     #cards-container::-webkit-scrollbar-thumb { background: #dadce0; border-radius: 10px; }
+    #detail-body::-webkit-scrollbar { width: 5px; }
+    #detail-body::-webkit-scrollbar-track { background: transparent; }
+    #detail-body::-webkit-scrollbar-thumb { background: #dadce0; border-radius: 10px; }
   </style>
 </head>
 <body>
@@ -275,6 +349,18 @@
   </div>
 </div>
 
+<!-- ── Details Modal ── -->
+<div id="detail-overlay">
+  <div id="detail-modal">
+    <div id="detail-header">
+      <span class="detail-icon" id="detail-icon">📊</span>
+      <h3 id="detail-title">פרטי רשומות</h3>
+      <button id="detail-close">✕</button>
+    </div>
+    <div id="detail-body"><!-- populated by JS --></div>
+  </div>
+</div>
+
 <script>
 // ─────────────────────────────────────────────
 //  i18n
@@ -302,6 +388,16 @@ const I18N = {
     settingsTitle:      'הגדרות',
     noData:             'לא נמצאו רשומות פתוחות',
     promptLang:         'Hebrew',
+    detailTitle:        'רשומות קשורות',
+    detailHint:         'לחץ פעמיים לפרטים',
+    detailNoRecords:    'לא נמצאו רשומות תואמות',
+    detailCopied:       'הועתק!',
+    colId:              'מזהה',
+    colOwner:           'בעלים',
+    colAccount:         'לקוח',
+    colDate:            'תאריך',
+    colStatus:          'סטטוס',
+    colName:            'שם',
   },
   en: {
     panelTitle:         'Business Insights – SAP Sales Cloud',
@@ -325,15 +421,26 @@ const I18N = {
     settingsTitle:      'Settings',
     noData:             'No open records found',
     promptLang:         'English',
+    detailTitle:        'Related Records',
+    detailHint:         'Double-click for details',
+    detailNoRecords:    'No matching records found',
+    detailCopied:       'Copied!',
+    colId:              'ID',
+    colOwner:           'Owner',
+    colAccount:         'Account',
+    colDate:            'Date',
+    colStatus:          'Status',
+    colName:            'Name',
   }
 };
 
 // ─────────────────────────────────────────────
 //  State
 // ─────────────────────────────────────────────
-let cfg    = { sapUrl: '', sapUser: '', sapPass: '', geminiToken: '', lang: 'he' };
-let sapOk  = false;
-let gemOk  = false;
+let cfg        = { sapUrl: '', sapUser: '', sapPass: '', geminiToken: '', lang: 'he' };
+let sapOk      = false;
+let gemOk      = false;
+let rawRecords = [];   // full SAP records with IDs, keyed by type
 
 function loadCfg() {
   try { cfg = { ...cfg, ...JSON.parse(localStorage.getItem('sap_insights_cfg') || '{}') }; }
@@ -433,11 +540,20 @@ const TYPE_ICON = { opportunity: '💼', quote: '📄', lead: '🎯', task: '�
 
 function renderCards(insights) {
   if (!insights || !insights.length) { showNoData(); return; }
+  const hint = I18N[cfg.lang].detailHint;
   $cards.innerHTML = insights.slice(0, 3).map((ins, i) => {
     const cls  = { red: 'red', orange: 'orange', yellow: 'yellow' }[ins.severity] || 'yellow';
     const icon = TYPE_ICON[ins.type] || '📊';
+    // encode card metadata as data attributes for the detail lookup
+    const dataType    = esc(ins.type    || '');
+    const dataOwner   = esc(ins.owner   || '');
+    const dataAccount = esc(ins.account || '');
+    const dataTitle   = esc(ins.title   || '');
     return `
-      <div class="card ${cls}">
+      <div class="card ${cls}"
+           data-type="${dataType}" data-owner="${dataOwner}"
+           data-account="${dataAccount}" data-title="${dataTitle}"
+           ondblclick="openDetail(this)">
         <div class="card-header">
           <span class="card-icon">${icon}</span>
           <span class="card-title">${esc(ins.title)}</span>
@@ -447,6 +563,7 @@ function renderCards(insights) {
           ${ins.owner   ? `<span class="meta-tag">👤 ${esc(ins.owner)}</span>`   : ''}
           ${ins.account ? `<span class="meta-tag">🏢 ${esc(ins.account)}</span>` : ''}
         </div>
+        <div class="card-hint">${hint}</div>
       </div>`;
   }).join('');
 }
@@ -529,7 +646,11 @@ async function fetchEndpoint(base, auth, ep) {
   if (!res.ok) throw new Error(`HTTP ${res.status} on ${ep.key}`);
   const json = await res.json();
   const rows = json.value || (json.d && json.d.results) || [];
-  return rows.filter(ep.filter).map(r => ({ type: ep.type, ...ep.extract(r) }));
+  return rows.filter(ep.filter).map(r => ({
+    type: ep.type,
+    _raw: r,                // full SAP record preserved for detail view
+    ...ep.extract(r)
+  }));
 }
 
 // ─────────────────────────────────────────────
@@ -539,7 +660,7 @@ async function callGemini(records) {
   const langName = I18N[cfg.lang].promptLang;
   // Compact records: drop empty fields, cap at 60 total
   const compact = records.slice(0, 60).map(r =>
-    Object.fromEntries(Object.entries(r).filter(([,v]) => v !== '' && v != null))
+    Object.fromEntries(Object.entries(r).filter(([k,v]) => k !== '_raw' && v !== '' && v != null))
   );
   const prompt = `You are a CRM business analyst. Analyze the following SAP Sales Cloud open records and return EXACTLY 3 actionable business insight notifications.
 
@@ -598,11 +719,12 @@ async function fetchAndAnalyze() {
   const auth = 'Basic ' + btoa(cfg.sapUser + ':' + cfg.sapPass);
 
   const settled = await Promise.allSettled(ENDPOINTS.map(ep => fetchEndpoint(base, auth, ep)));
-  let allRecords = [];
+  rawRecords = [];
   settled.forEach((r, i) => {
-    if (r.status === 'fulfilled') allRecords = allRecords.concat(r.value);
+    if (r.status === 'fulfilled') rawRecords = rawRecords.concat(r.value);
     else console.warn('[' + ENDPOINTS[i].key + ']', r.reason?.message);
   });
+  const allRecords = rawRecords;
 
   sapOk = settled.some(r => r.status === 'fulfilled');
   updateStatus();
@@ -633,6 +755,146 @@ async function fetchAndAnalyze() {
 }
 
 // ─────────────────────────────────────────────
+//  Detail modal
+// ─────────────────────────────────────────────
+const ID_FIELDS = {
+  opportunity: ['OpportunityID','ID','ObjectID','ExternalID','UUID'],
+  quote:       ['SalesQuoteID','ID','ObjectID','ExternalID','UUID'],
+  lead:        ['LeadID','ID','ObjectID','ExternalID','UUID'],
+  task:        ['ActivityID','TaskID','ID','ObjectID','ExternalID','UUID'],
+};
+const LABEL_FIELDS = {
+  opportunity: ['Subject','Name','Description'],
+  quote:       ['Subject','Name','Description','SalesQuoteName'],
+  lead:        ['Subject','Name','Topic','Description'],
+  task:        ['Subject','Name','Description'],
+};
+
+function pickId(raw, type) {
+  for (const f of (ID_FIELDS[type] || ['ID','ObjectID','UUID'])) {
+    if (raw[f]) return { key: f, val: raw[f] };
+  }
+  // fallback: any field containing 'ID' or 'Id'
+  const fallback = Object.entries(raw).find(([k]) => /[Ii][Dd]$/.test(k) && raw[k]);
+  return fallback ? { key: fallback[0], val: fallback[1] } : null;
+}
+
+function pickLabel(raw, type) {
+  for (const f of (LABEL_FIELDS[type] || ['Subject','Name'])) {
+    if (raw[f]) return raw[f];
+  }
+  return '';
+}
+
+// Build a clean field list to show in detail view
+function detailRows(raw, type) {
+  const t = I18N[cfg.lang];
+  const idInfo = pickId(raw, type);
+  const rows = [];
+
+  // Always show ID first if found
+  if (idInfo) rows.push({ key: idInfo.key, val: idInfo.val, isId: true });
+
+  // Name / Subject
+  const label = pickLabel(raw, type);
+  if (label) rows.push({ key: t.colName, val: label });
+
+  // Standard extracted fields
+  const std = [
+    ['OwnerName','ResponsibleEmployeeName','ProcessorName', t.colOwner],
+    ['AccountName','AccountPartyName','SoldToPartyName','ProspectPartyName', t.colAccount],
+    ['CloseDate','ValidityEndDate','DueDate','StartDate','PlannedEndDate', t.colDate],
+    ['LifeCycleStatusCode','StatusCode', t.colStatus],
+  ];
+  std.forEach(group => {
+    const label = group[group.length - 1];
+    for (let i = 0; i < group.length - 1; i++) {
+      if (raw[group[i]]) { rows.push({ key: label, val: raw[group[i]] }); break; }
+    }
+  });
+
+  // All remaining non-empty scalar fields (skip already-shown, skip internals)
+  const shown = new Set(rows.map(r => r.key));
+  const skip  = new Set(['@odata.etag','@odata.context','__metadata']);
+  Object.entries(raw).forEach(([k, v]) => {
+    if (skip.has(k) || shown.has(k)) return;
+    if (v === null || v === undefined || v === '') return;
+    if (typeof v === 'object') return; // skip nested objects
+    rows.push({ key: k, val: String(v) });
+  });
+  return rows;
+}
+
+function openDetail(cardEl) {
+  const type    = cardEl.dataset.type    || '';
+  const owner   = cardEl.dataset.owner   || '';
+  const account = cardEl.dataset.account || '';
+  const title   = cardEl.dataset.title   || '';
+  const t       = I18N[cfg.lang];
+  const rtl     = cfg.lang === 'he';
+
+  // Find matching raw records by type; then try to narrow by owner/account
+  let matches = rawRecords.filter(r => r.type === type);
+  if (!matches.length) matches = rawRecords; // fallback: show all
+
+  // Score each record by how closely it matches the card's owner/account
+  const scored = matches.map(r => {
+    let score = 0;
+    if (owner   && r.owner   && r.owner.toLowerCase().includes(owner.toLowerCase()))   score += 2;
+    if (account && r.account && r.account.toLowerCase().includes(account.toLowerCase())) score += 2;
+    return { r, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored.slice(0, 10).map(s => s.r); // show up to 10 best matches
+
+  // Render
+  const icon = TYPE_ICON[type] || '📊';
+  document.getElementById('detail-icon').textContent = icon;
+  document.getElementById('detail-title').textContent = title || t.detailTitle;
+  document.getElementById('detail-modal').dir = rtl ? 'rtl' : 'ltr';
+
+  const bodyEl = document.getElementById('detail-body');
+  if (!top.length) {
+    bodyEl.innerHTML = `<p style="color:#5f6368;font-size:13px;padding:10px 0">${t.detailNoRecords}</p>`;
+  } else {
+    bodyEl.innerHTML = top.map((rec, idx) => {
+      const rows = detailRows(rec._raw || rec, type);
+      const rowsHtml = rows.map(row => `
+        <div class="detail-row">
+          <span class="detail-key">${esc(row.key)}</span>
+          <span class="detail-val ${row.isId ? 'id-val' : ''}"
+                ${row.isId ? `onclick="copyToClipboard(this,'${esc(row.val)}')" title="לחץ להעתקה"` : ''}>
+            ${esc(row.val)}
+          </span>
+        </div>`).join('');
+      const idInfo = pickId(rec._raw || rec, type);
+      const sectionLabel = idInfo
+        ? `${TYPE_ICON[type] || ''} ${idInfo.key}: ${idInfo.val}`
+        : `${TYPE_ICON[type] || ''} #${idx + 1}`;
+      return `
+        <div class="detail-section">
+          <div class="detail-section-title">${esc(sectionLabel)}</div>
+          <div class="detail-record">${rowsHtml}</div>
+        </div>`;
+    }).join('');
+  }
+
+  document.getElementById('detail-overlay').classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-overlay').classList.remove('open');
+}
+
+function copyToClipboard(el, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = el.textContent;
+    el.textContent = I18N[cfg.lang].detailCopied;
+    setTimeout(() => { el.textContent = orig; }, 1200);
+  }).catch(() => {});
+}
+
+// ─────────────────────────────────────────────
 //  Settings modal
 // ─────────────────────────────────────────────
 function openSettings() {
@@ -657,6 +919,10 @@ function saveSettings() {
 // ─────────────────────────────────────────────
 //  Event wiring
 // ─────────────────────────────────────────────
+document.getElementById('detail-close').addEventListener('click', closeDetail);
+document.getElementById('detail-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('detail-overlay')) closeDetail();
+});
 document.getElementById('settings-btn').addEventListener('click', openSettings);
 document.getElementById('refresh-btn').addEventListener('click', fetchAndAnalyze);
 document.getElementById('save-btn').addEventListener('click', saveSettings);
