@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+  xsi:type="MailApp">
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       OUTLOOK ADD-IN MANIFEST — SAP Sales Cloud Insights
+       ═══════════════════════════════════════════════════════════════
+       LOCAL TESTING:  All URLs below point to https://localhost:3000
+       AZURE PRODUCTION: Replace every https://localhost:3000
+                         with your Azure URL, e.g.:
+                         https://salescloudinsights.azurewebsites.net
+       ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- Unique GUID for this add-in. Do NOT change once deployed. -->
+  <Id>a3f7c820-4e1b-4d2a-9c3f-8b6d1e0f2a47</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Abra IT</ProviderName>
+
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="SAP Sales Cloud Insights"/>
+  <Description DefaultValue="Save Outlook emails directly to SAP Sales Cloud V2 opportunities and view linked CRM data."/>
+
+  <!-- ── Icons ─────────────────────────────────────────────────────
+       LOCAL:      https://localhost:3000/assets/icon-{size}.png
+       PRODUCTION: https://<YOUR-AZURE-URL>/assets/icon-{size}.png
+  ──────────────────────────────────────────────────────────────── -->
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+  <SupportUrl DefaultValue="https://localhost:3000"/>
+
+  <!-- Domains that the add-in is allowed to open or navigate to.
+       Add your Azure domain here AND keep localhost for local dev. -->
+  <AppDomains>
+    <AppDomain>https://localhost:3000</AppDomain>
+    <!-- PRODUCTION: uncomment and fill in your Azure domain
+    <AppDomain>https://salescloudinsights.azurewebsites.net</AppDomain>
+    -->
+  </AppDomains>
+
+  <!-- ── Host: Outlook only ───────────────────────────────────────── -->
+  <Hosts>
+    <Host Name="Mailbox"/>
+  </Hosts>
+
+  <!-- ── Minimum API requirement ─────────────────────────────────── -->
+  <Requirements>
+    <Sets>
+      <!-- Mailbox 1.1 is required for item.body.getAsync() -->
+      <Set Name="Mailbox" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+
+  <!-- ── Legacy FormSettings (fallback for older Outlook versions) ─ -->
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <!-- ▼▼▼ SWAP THIS URL FOR AZURE DEPLOYMENT ▼▼▼ -->
+        <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
+        <!-- ▲▲▲ SWAP THIS URL FOR AZURE DEPLOYMENT ▲▲▲ -->
+        <RequestedHeight>450</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+
+  <!-- ── Permissions ──────────────────────────────────────────────── -->
+  <!-- ReadItem: allows reading the current email's metadata and body -->
+  <Permissions>ReadItem</Permissions>
+
+  <!-- ── Rule: activate on email read ────────────────────────────── -->
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read"/>
+  </Rule>
+
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       VERSION OVERRIDES — Modern ribbon button + taskpane
+       Supported in Outlook 2016+ / Microsoft 365
+       ═══════════════════════════════════════════════════════════════ -->
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.1">
+        <bt:Set Name="Mailbox" MinVersion="1.1"/>
+      </bt:Sets>
+    </Requirements>
+
+    <Hosts>
+      <Host xsi:type="MailHost">
+        <DesktopFormFactor>
+
+          <!-- ── Ribbon button in the Message Read surface ────────── -->
+          <ExtensionPoint xsi:type="MessageReadCommandSurface">
+            <OfficeTab id="TabDefault">
+              <Group id="SAPInsightsGroup">
+                <Label resid="GroupLabel"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- Open Taskpane button -->
+                <Control xsi:type="Button" id="OpenTaskpaneBtn">
+                  <Label resid="TaskpaneButton.Label"/>
+                  <Supertip>
+                    <Title resid="TaskpaneButton.Label"/>
+                    <Description resid="TaskpaneButton.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16"/>
+                    <bt:Image size="32" resid="Icon.32x32"/>
+                    <bt:Image size="80" resid="Icon.80x80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>SAPSalesCloudTaskpane</TaskpaneId>
+                    <!-- ▼▼▼ SWAP THIS URL FOR AZURE DEPLOYMENT ▼▼▼ -->
+                    <SourceLocation resid="Taskpane.Url"/>
+                    <!-- ▲▲▲ SWAP THIS URL FOR AZURE DEPLOYMENT ▲▲▲ -->
+                    <SupportsPinning>true</SupportsPinning>
+                  </Action>
+                </Control>
+
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <!-- ── Resources ───────────────────────────────────────────────── -->
+    <Resources>
+      <bt:Images>
+        <!-- ▼▼▼ SWAP localhost WITH YOUR AZURE URL FOR PRODUCTION ▼▼▼ -->
+        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+        <!-- ▲▲▲ SWAP localhost WITH YOUR AZURE URL FOR PRODUCTION ▲▲▲ -->
+      </bt:Images>
+
+      <bt:Urls>
+        <!-- ▼▼▼ THE ONE URL TO CHANGE FOR AZURE DEPLOYMENT ▼▼▼ -->
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
+        <!-- ▲▲▲ THE ONE URL TO CHANGE FOR AZURE DEPLOYMENT ▲▲▲ -->
+        <!--
+          PRODUCTION EXAMPLE:
+          <bt:Url id="Taskpane.Url" DefaultValue="https://salescloudinsights.azurewebsites.net/taskpane.html"/>
+        -->
+      </bt:Urls>
+
+      <bt:ShortStrings>
+        <bt:String id="GroupLabel"        DefaultValue="SAP Sales Cloud"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="SAP Insights"/>
+      </bt:ShortStrings>
+
+      <bt:LongStrings>
+        <bt:String id="TaskpaneButton.Tooltip"
+          DefaultValue="Open the SAP Sales Cloud panel to view opportunities and save this email to SAP."/>
+      </bt:LongStrings>
+    </Resources>
+
+  </VersionOverrides>
+
+</OfficeApp>
