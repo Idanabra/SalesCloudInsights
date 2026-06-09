@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '1.6';
+const _VERSION = '1.7';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -216,6 +216,50 @@ function getMailBodyHtmlAsync() {
   });
 }
 
+/**
+ * Resolve cid: inline image references to base64 data URIs.
+ * Requires Mailbox 1.8+ (getAttachmentContentAsync). Gracefully skips if unavailable.
+ * Without this, images in email signatures/bodies show as broken in SAP.
+ */
+async function resolveCidImages(html) {
+  if (!html || !html.includes('cid:')) return html;
+
+  const item = Office.context.mailbox.item;
+  if (typeof item.getAttachmentContentAsync !== 'function') {
+    console.warn('[SAP Insights] getAttachmentContentAsync not available — cid: images will be broken');
+    return html;
+  }
+
+  const inlineAtts = (item.attachments ?? []).filter(a => a.isInline);
+  if (!inlineAtts.length) return html;
+
+  const fetched = await Promise.all(
+    inlineAtts.map(att => new Promise(resolve => {
+      item.getAttachmentContentAsync(att.id, r => {
+        resolve(r.status === Office.AsyncResultStatus.Succeeded
+          ? { att, value: r.value }
+          : null);
+      });
+    }))
+  );
+
+  let out = html;
+  for (const r of fetched) {
+    if (!r?.value?.content) continue;
+    if (r.value.format !== Office.MailboxEnums.AttachmentContentFormat.Base64) continue;
+
+    const dataUri = `data:${r.att.contentType};base64,${r.value.content}`;
+    // cid: references look like: cid:image001.png@01AB...  — match by attachment name
+    const safeName = r.att.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(
+      new RegExp(`src=["']cid:[^"']*${safeName}[^"']*["']`, 'gi'),
+      () => `src="${dataUri}"`   // arrow fn avoids $ special meaning in replace
+    );
+  }
+
+  return out;
+}
+
 /** Minimal HTML wrapper for plain text — used when HTML fetch fails. */
 function plainToHtml(plain) {
   const paragraphs = plain.split('\n')
@@ -235,10 +279,13 @@ function emailList(arr) {
 async function readOutlookEmail() {
   const item = Office.context.mailbox.item;
 
-  const [plainContent, richTextBody] = await Promise.all([
+  const [plainContent, rawHtml] = await Promise.all([
     getMailBodyTextAsync(),
     getMailBodyHtmlAsync(),
   ]);
+
+  // Replace cid: inline image references with base64 data URIs so SAP can render them
+  const richTextBody = await resolveCidImages(rawHtml);
 
   const sentOn = item.dateTimeCreated
     ? new Date(item.dateTimeCreated).toISOString()
