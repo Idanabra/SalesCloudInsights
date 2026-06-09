@@ -1,16 +1,11 @@
 /**
- * SAP Sales Cloud Insights — Outlook Taskpane
- * Connects Outlook Desktop to SAP Sales Cloud V2 via Basic Auth REST APIs.
- *
- * Flow:
- *  1. Office.onReady() initialises the add-in.
- *  2. If settings are missing → show Settings view.
- *  3. Otherwise → fetch opportunities and show Main view.
- *  4. User selects an opportunity → "Save Email to SAP" button activates.
- *  5. On save: reads Outlook item metadata, POSTs to SAP email-service.
+ * SAP Sales Cloud Insights — Outlook Taskpane v1.5
  */
 
 'use strict';
+
+const _VERSION = '1.5';
+console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
    Settings helpers (localStorage)
@@ -57,13 +52,6 @@ function escHtml(s) {
    Status banner
 ───────────────────────────────────────────────────────────────────────── */
 
-/**
- * Show a status banner above the opportunity list.
- * @param {'success'|'error'|'info'|'saving'} type
- * @param {string} title
- * @param {string} [detail]
- * @param {boolean} [withSpinner]
- */
 function showStatus(type, title, detail, withSpinner) {
   const banner = el('status-banner');
   const iconMap = { success: '✔', error: '✖', info: 'ℹ', saving: '' };
@@ -110,15 +98,6 @@ async function sapFetch(settings, path, options = {}) {
   return response.json();
 }
 
-/**
- * Fetch opportunities from SAP Sales Cloud V2.
- * Uses $search when a query is provided; falls back to $top=50 otherwise.
- * Client-side filtering is applied as a second pass.
- *
- * @param {object} settings
- * @param {string} [searchQuery]
- * @returns {Promise<Array>}
- */
 async function fetchOpportunities(settings, searchQuery = '') {
   let path = '/sap/c4c/api/v1/opportunity-service/opportunities';
   const params = new URLSearchParams();
@@ -127,21 +106,18 @@ async function fetchOpportunities(settings, searchQuery = '') {
   params.set('$select', 'id,displayId,name,OwnerName,ownerName,owner,LifeCycleStatusCode');
 
   if (searchQuery.trim()) {
-    // $search is supported in SAP Sales Cloud V2 OData services
     params.set('$search', searchQuery.trim());
   }
 
   path += '?' + params.toString();
 
   const json = await sapFetch(settings, path);
-  // OData v4 wraps results in .value
   const all = json?.value ?? json?.data?.value ?? [];
 
-  // Client-side filter as fallback (in case $search isn't supported on the tenant)
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
     return all.filter(o => {
-      const name  = (o.name  ?? o.Name  ?? '').toLowerCase();
+      const name   = (o.name  ?? o.Name  ?? '').toLowerCase();
       const dispId = String(o.displayId ?? o.DisplayID ?? o.id ?? '').toLowerCase();
       return name.includes(q) || dispId.includes(q);
     });
@@ -152,7 +128,6 @@ async function fetchOpportunities(settings, searchQuery = '') {
 
 /* ─────────────────────────────────────────────────────────────────────────
    Opportunity field extraction
-   SAP V2 field names can vary by tenant config; we try common variants.
 ───────────────────────────────────────────────────────────────────────── */
 
 function oppField(o, ...keys) {
@@ -171,7 +146,6 @@ function oppDisplayId(o) {
 }
 
 function oppUUID(o) {
-  // The UUID used for relatedObjects linkage
   return String(o.id ?? o.ObjectID ?? o.opportunityId ?? '');
 }
 
@@ -180,57 +154,112 @@ function oppOwner(o) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+   Plain-text cleanup — strip markdown/URI noise injected by Office.js
+───────────────────────────────────────────────────────────────────────── */
+
+function cleanPlainText(text) {
+  return text
+    // [label](url) → label
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // label <url> or just <url> where url starts with http/https/mailto/tel
+    .replace(/[ \t]*<(?:https?|mailto|tel)[^>]*>/g, '')
+    // bare <url> leftovers
+    .replace(/<(?:https?|mailto|tel)[^>]*>/g, '')
+    // normalise line endings
+    .replace(/\r\n/g, '\n')
+    // blank out whitespace-only lines
+    .replace(/^[ \t]+$/gm, '')
+    // collapse 3+ blank lines → 2
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    Office.js helpers — wrapped in Promises
 ───────────────────────────────────────────────────────────────────────── */
 
-/**
- * Get the plain-text body of the current mail item.
- * @returns {Promise<string>}
- */
-function getMailBodyAsync() {
-  return new Promise((resolve, reject) => {
+function getMailBodyTextAsync() {
+  return new Promise((resolve) => {
     Office.context.mailbox.item.body.getAsync(
       Office.CoercionType.Text,
       { asyncContext: null },
       (result) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
-          resolve(result.value ?? '');
-        } else {
-          reject(new Error(result.error?.message ?? 'Failed to read email body'));
+        if (result.status !== Office.AsyncResultStatus.Succeeded || !result.value) {
+          resolve('');
+          return;
         }
+        resolve(cleanPlainText(result.value));
       }
     );
   });
 }
 
 /**
- * Extract a simple array of email strings from an EmailAddressDetails array.
- * @param {Array} arr
- * @returns {string[]}
+ * Returns only the inner HTML content of the <body> element to avoid
+ * sending the full Word HTML document wrapper to SAP.
  */
+function getMailBodyHtmlAsync() {
+  return new Promise((resolve) => {
+    Office.context.mailbox.item.body.getAsync(
+      Office.CoercionType.Html,
+      { asyncContext: null },
+      (result) => {
+        if (result.status !== Office.AsyncResultStatus.Succeeded || !result.value) {
+          resolve(null);
+          return;
+        }
+        const html = result.value;
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        resolve(bodyMatch ? bodyMatch[1] : html);
+      }
+    );
+  });
+}
+
+/** Minimal HTML wrapper for plain text — used when HTML fetch fails. */
+function plainToHtml(plain) {
+  const paragraphs = plain.split('\n')
+    .map(l => l.trim())
+    .map(l => l
+      ? `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`
+      : '<br>')
+    .join('\n');
+  return `<!DOCTYPE html><html><body dir="auto">${paragraphs}</body></html>`;
+}
+
 function emailList(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map(r => r?.emailAddress ?? '').filter(Boolean);
 }
 
-/**
- * Collect all email metadata from the current Outlook item.
- * NOTE: item.bcc is NOT available in read mode (Outlook API restriction).
- *
- * @returns {Promise<object>}
- */
 async function readOutlookEmail() {
   const item = Office.context.mailbox.item;
 
-  const [body] = await Promise.all([getMailBodyAsync()]);
+  const [plainContent, richTextBody] = await Promise.all([
+    getMailBodyTextAsync(),
+    getMailBodyHtmlAsync(),
+  ]);
+
+  const sentOn = item.dateTimeCreated
+    ? new Date(item.dateTimeCreated).toISOString()
+    : new Date().toISOString();
+
+  const fromEmail    = item.from?.emailAddress ?? '';
+  const mailboxEmail = Office.context.mailbox.userProfile?.emailAddress ?? '';
+  const direction    = fromEmail.toLowerCase() === mailboxEmail.toLowerCase()
+    ? 'OUTBOUND' : 'INBOUND';
 
   return {
-    subject:    item.subject ?? '',
-    from:       item.from?.emailAddress ?? '',
-    to:         emailList(item.to),
-    cc:         emailList(item.cc),
-    bcc:        [], // Not available in read mode — Outlook API restriction
-    body,
+    subject:      item.subject ?? '',
+    messageId:    item.internetMessageId ?? null,
+    from:         fromEmail,
+    to:           emailList(item.to),
+    cc:           emailList(item.cc),
+    bcc:          [],
+    plainContent,
+    richTextBody,
+    sentOn,
+    direction,
   };
 }
 
@@ -238,19 +267,22 @@ async function readOutlookEmail() {
    Build SAP email payload
 ───────────────────────────────────────────────────────────────────────── */
 
-/**
- * @param {object} email   – from readOutlookEmail()
- * @param {object} opp     – selected SAP opportunity record
- * @returns {object}       – request body for POST /email-service/emails
- */
 function buildEmailPayload(email, opp) {
-  return {
-    subject:       email.subject,
-    from:          email.from,
-    toRecipients:  email.to,
-    ccRecipients:  email.cc,
-    bccRecipients: email.bcc,
-    body:          email.body,
+  const payload = {
+    subject:            email.subject,
+    messageId:          email.messageId,
+    transmissionStatus: 'CREATE',
+    direction:          email.direction,
+    dataOrigin:         'MANUAL',
+    isDraft:            false,
+    isAutoReply:        false,
+    isBounce:           false,
+    sentOn:             email.sentOn,
+    from:               email.from,
+    toRecipients:       email.to,
+    ccRecipients:       email.cc,
+    bccRecipients:      email.bcc,
+    plainContent:       email.plainContent,
     accounts:             [],
     contacts:             [],
     individualCustomers:  [],
@@ -264,11 +296,20 @@ function buildEmailPayload(email, opp) {
       {
         objectId:  oppUUID(opp),
         displayId: oppDisplayId(opp),
-        type:      '72',       // SAP type code for Opportunity
+        type:      '72',
         role:      'PREDECESSOR',
       },
     ],
   };
+
+  // Send HTML body under all known SAP field names; SAP ignores unknown fields.
+  const htmlContent = email.richTextBody || plainToHtml(email.plainContent);
+  payload.richTextBody = htmlContent;
+  payload.richText     = htmlContent;
+  payload.htmlBody     = htmlContent;
+  payload.htmlContent  = htmlContent;
+
+  return payload;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -277,12 +318,12 @@ function buildEmailPayload(email, opp) {
 
 const app = (() => {
 
-  let _settings     = null;   // Current saved settings
-  let _allOpps      = [];     // Full opportunity list from SAP
-  let _filteredOpps = [];     // After search filter
-  let _selectedOpp  = null;   // Currently selected opportunity object
-  let _searchTimer  = null;   // Debounce timer ID
-  let _loading      = false;  // Guard against parallel loads
+  let _settings     = null;
+  let _allOpps      = [];
+  let _filteredOpps = [];
+  let _selectedOpp  = null;
+  let _searchTimer  = null;
+  let _loading      = false;
 
   /* ── View management ─────────────────────────────────────── */
 
@@ -297,19 +338,13 @@ const app = (() => {
     showEl('settings-view');
     el('refresh-btn').style.display = 'none';
 
-    // Pre-fill form from saved settings
     if (_settings) {
       el('cfg-url').value  = _settings.url  ?? '';
       el('cfg-user').value = _settings.user ?? '';
       el('cfg-pass').value = _settings.pass ?? '';
     }
 
-    // Hide Cancel if no settings yet (first-run)
-    if (!_settings) {
-      el('cancel-settings-btn').style.display = 'none';
-    } else {
-      el('cancel-settings-btn').style.display = '';
-    }
+    el('cancel-settings-btn').style.display = _settings ? '' : 'none';
   }
 
   /* ── Opportunity rendering ───────────────────────────────── */
@@ -318,10 +353,7 @@ const app = (() => {
     const container = el('opp-list');
     container.innerHTML = '';
 
-    // Update count label
-    const label = list.length === 1
-      ? '1 Opportunity'
-      : `${list.length} Opportunities`;
+    const label = list.length === 1 ? '1 Opportunity' : `${list.length} Opportunities`;
     el('opp-count-label').textContent = label;
 
     list.forEach(opp => {
@@ -331,9 +363,9 @@ const app = (() => {
       item.setAttribute('aria-selected', 'false');
       item.dataset.id = oppUUID(opp);
 
-      const name    = escHtml(oppName(opp));
-      const dispId  = escHtml(oppDisplayId(opp));
-      const owner   = escHtml(oppOwner(opp));
+      const name   = escHtml(oppName(opp));
+      const dispId = escHtml(oppDisplayId(opp));
+      const owner  = escHtml(oppOwner(opp));
 
       item.innerHTML = `
         <div class="opp-name" title="${name}">${name}</div>
@@ -348,10 +380,9 @@ const app = (() => {
   }
 
   function selectOpportunity(opp, itemEl) {
-    // Deselect any previous selection
-    container('opp-list').querySelectorAll('.opp-item.selected').forEach(el => {
-      el.classList.remove('selected');
-      el.setAttribute('aria-selected', 'false');
+    el('opp-list').querySelectorAll('.opp-item.selected').forEach(e => {
+      e.classList.remove('selected');
+      e.setAttribute('aria-selected', 'false');
     });
 
     _selectedOpp = opp;
@@ -361,8 +392,6 @@ const app = (() => {
     el('save-btn').disabled = false;
     hideStatus();
   }
-
-  function container(id) { return document.getElementById(id); }
 
   /* ── Load / search opportunities ────────────────────────── */
 
@@ -375,7 +404,6 @@ const app = (() => {
     el('save-btn').disabled = true;
     hideStatus();
 
-    // Show loading state, hide others
     hideEl('opp-section');
     hideEl('empty-state');
     hideEl('error-state');
@@ -402,7 +430,6 @@ const app = (() => {
       el('error-msg').textContent = err.message ?? 'Failed to load opportunities.';
       showEl('error-state');
 
-      // If it looks like an auth or config error, nudge user to settings
       if (err.message.includes('401') || err.message.includes('403') || err.message.includes('Failed to fetch')) {
         showStatus('error', 'Connection failed', err.message);
       }
@@ -440,7 +467,6 @@ const app = (() => {
       return;
     }
 
-    // Reset error borders
     ['cfg-url', 'cfg-user', 'cfg-pass'].forEach(id => {
       el(id).style.borderColor = '';
     });
@@ -461,7 +487,6 @@ const app = (() => {
     showStatus('saving', 'Saving to SAP…', `Linking to: ${oppName(_selectedOpp)}`, true);
 
     try {
-      // Step 1: Read the current Outlook email
       let emailData;
       try {
         emailData = await readOutlookEmail();
@@ -469,33 +494,29 @@ const app = (() => {
         throw new Error('Could not read email data: ' + err.message);
       }
 
-      // Step 2: Build the POST payload
       const payload = buildEmailPayload(emailData, _selectedOpp);
 
-      // Step 3: POST to SAP email-service
       const path = '/sap/c4c/api/v1/email-service/emails';
       await sapFetch(_settings, path, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
-      // Step 4: Show success
       showStatus(
         'success',
         'Email saved to SAP',
         `Linked to opportunity: ${oppName(_selectedOpp)} (${oppDisplayId(_selectedOpp)})`
       );
 
-      // Clear selection after save
       _selectedOpp = null;
-      container('opp-list').querySelectorAll('.opp-item.selected').forEach(e => {
+      el('opp-list').querySelectorAll('.opp-item.selected').forEach(e => {
         e.classList.remove('selected');
         e.setAttribute('aria-selected', 'false');
       });
 
     } catch (err) {
       showStatus('error', 'Save failed', err.message);
-      el('save-btn').disabled = false; // Re-enable so user can retry
+      el('save-btn').disabled = false;
     }
   }
 
@@ -518,11 +539,9 @@ const app = (() => {
 
 /* ─────────────────────────────────────────────────────────────────────────
    Office.onReady entry point
-   All Office.js calls must happen after this resolves.
 ───────────────────────────────────────────────────────────────────────── */
 
 Office.onReady((info) => {
-  // Only activate for Outlook; guard against running in a plain browser tab
   if (info.host !== null && info.host !== Office.HostType.Outlook) {
     document.getElementById('app').innerHTML =
       '<div style="padding:16px;color:#a80000">This add-in is designed for Microsoft Outlook.</div>';
