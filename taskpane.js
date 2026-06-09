@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '1.5';
+const _VERSION = '1.6';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -302,14 +302,35 @@ function buildEmailPayload(email, opp) {
     ],
   };
 
-  // Send HTML body under all known SAP field names; SAP ignores unknown fields.
-  const htmlContent = email.richTextBody || plainToHtml(email.plainContent);
-  payload.richTextBody = htmlContent;
-  payload.richText     = htmlContent;
-  payload.htmlBody     = htmlContent;
-  payload.htmlContent  = htmlContent;
-
   return payload;
+}
+
+/**
+ * Step 2 of saving: upload HTML to the OData stream property of the new email.
+ * SAP stores this in its document service (S3) and returns richTextPreSignedURL.
+ *
+ * Endpoint: PUT /email-service/emails/{id}/richText/$value
+ * Content-Type: text/html
+ */
+async function uploadEmailRichText(settings, emailId, htmlContent) {
+  const base = settings.url.replace(/\/$/, '');
+  const url  = `${base}/sap/c4c/api/v1/email-service/emails/${emailId}/richText/$value`;
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization':  basicAuthHeader(settings.user, settings.pass),
+      'Content-Type':   'text/html; charset=utf-8',
+      'Accept':         'application/json',
+    },
+    body: htmlContent,
+  });
+
+  if (!response.ok) {
+    let msg = `HTTP ${response.status}`;
+    try { const b = await response.json(); msg = b?.error?.message?.value ?? b?.message ?? msg; } catch (_) {}
+    throw new Error(msg);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -487,6 +508,7 @@ const app = (() => {
     showStatus('saving', 'Saving to SAP…', `Linking to: ${oppName(_selectedOpp)}`, true);
 
     try {
+      // Step 1: Read Outlook email
       let emailData;
       try {
         emailData = await readOutlookEmail();
@@ -494,13 +516,31 @@ const app = (() => {
         throw new Error('Could not read email data: ' + err.message);
       }
 
+      // Step 2: POST email metadata to SAP (plainContent only, no HTML in body)
       const payload = buildEmailPayload(emailData, _selectedOpp);
-
-      const path = '/sap/c4c/api/v1/email-service/emails';
-      await sapFetch(_settings, path, {
+      const basePath = '/sap/c4c/api/v1/email-service/emails';
+      const result = await sapFetch(_settings, basePath, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+
+      console.log('[SAP Insights] POST email response:', JSON.stringify(result));
+
+      // Step 3: Upload HTML as OData stream property so SAP stores it and sets
+      //         richTextPreSignedURL / richTextDocumentId on the email record.
+      const emailId = result?.id ?? result?.value?.[0]?.id ?? result?.data?.id;
+      if (emailId) {
+        const htmlContent = emailData.richTextBody || plainToHtml(emailData.plainContent);
+        try {
+          await uploadEmailRichText(_settings, emailId, htmlContent);
+          console.log('[SAP Insights] richText uploaded for email', emailId);
+        } catch (htmlErr) {
+          // Non-fatal: email is already saved; just no rich text
+          console.warn('[SAP Insights] richText upload failed:', htmlErr.message);
+        }
+      } else {
+        console.warn('[SAP Insights] No email id in POST response — skipping richText upload. Response:', result);
+      }
 
       showStatus(
         'success',
