@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '3.0';
+const _VERSION = '3.1';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ async function fetchOpportunities(settings, searchQuery = '') {
   let path = '/sap/c4c/api/v1/opportunity-service/opportunities';
   const params = new URLSearchParams();
 
-  params.set('$top', '100');
+  params.set('$top', '30');
   params.set('$select', 'id,displayId,name,OwnerName,ownerName,owner,LifeCycleStatusCode,salesCycleCode');
 
   // Filter by Sales Cycle if configured
