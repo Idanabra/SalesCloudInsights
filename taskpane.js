@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.3';
+const _VERSION = '2.4';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -405,12 +405,13 @@ async function attachRichTextToEmail(settings, emailId, htmlContent) {
   // ── Step A: create document record linked to the email ──────────────────
   // Try body variants from most specific to minimal — the 400 tells us
   // which fields SAP rejects; we stop at the first variant that returns 2xx.
+  // category must be an INTEGER — "39" string is rejected; 39 integer matches
+  // the S3 path structure .../documents/{tenant}/39/{emailId}/{docId}/...
   const bodyVariants = [
-    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', category: '39', isSelected: true, isDisplayDocument: false },
-    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', isSelected: true, isDisplayDocument: false },
-    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email' },
-    { fileName: '__OriginalContent.html', isSelected: true, isDisplayDocument: false },
-    { fileName: '__OriginalContent.html' },
+    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', category: 39, isSelected: true, isDisplayDocument: false },
+    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', category: 39 },
+    { fileName: '__OriginalContent.html', category: 39, isSelected: true, isDisplayDocument: false },
+    { fileName: '__OriginalContent.html', category: 39 },
   ];
 
   let meta = null;
