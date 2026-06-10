@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.5';
+const _VERSION = '2.6';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -403,11 +403,11 @@ async function attachRichTextToEmail(settings, emailId, htmlContent) {
 
   // ── Step A: create document record linked to the email ──────────────────
   const docBody = {
-    fileName:       'Email.html',
+    fileName:       '__OriginalContent.html',
     category:       'DOCUMENT',
-    type:           '10001',
+    type:           '11005',
     hostObjectId:   emailId,
-    hostObjectType: 'Email',
+    hostObjectType: '39',
   };
 
   const docResp = await fetch(`${base}/sap/c4c/api/v1/document-service/documents`, {
