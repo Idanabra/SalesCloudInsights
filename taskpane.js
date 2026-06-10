@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.1';
+const _VERSION = '2.2';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -658,7 +658,8 @@ const app = (() => {
         body:   JSON.stringify(payload),
       });
 
-      const emailId = result?.id ?? result?.value?.[0]?.id ?? result?.data?.id;
+      // SAP wraps the created entity in { value: { id, ... } } (object, not array)
+      const emailId = result?.id ?? result?.value?.id ?? result?.value?.[0]?.id ?? result?.data?.id;
       console.log('[SAP Insights] POST email → id:', emailId, 'response:', JSON.stringify(result).slice(0, 300));
 
       // Step 3: Attach HTML via document-service (requires emailId from step 2)
