@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.2';
+const _VERSION = '2.3';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -403,34 +403,35 @@ async function attachRichTextToEmail(settings, emailId, htmlContent) {
   const auth = basicAuthHeader(settings.user, settings.pass);
 
   // ── Step A: create document record linked to the email ──────────────────
-  const docBody = {
-    fileName:          '__OriginalContent.html',
-    category:          '39',
-    hostObjectId:      emailId,
-    hostObjectType:    'Email',
-    isSelected:        true,
-    isDisplayDocument: false,
-  };
+  // Try body variants from most specific to minimal — the 400 tells us
+  // which fields SAP rejects; we stop at the first variant that returns 2xx.
+  const bodyVariants = [
+    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', category: '39', isSelected: true, isDisplayDocument: false },
+    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', isSelected: true, isDisplayDocument: false },
+    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email' },
+    { fileName: '__OriginalContent.html', isSelected: true, isDisplayDocument: false },
+    { fileName: '__OriginalContent.html' },
+  ];
 
-  console.log('[SAP Insights] document-service POST body:', JSON.stringify(docBody));
-
-  const docResp = await fetch(`${base}/sap/c4c/api/v1/document-service/documents`, {
-    method:  'POST',
-    headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body:    JSON.stringify(docBody),
-  });
-
-  const docText = await docResp.text();
-  console.log('[SAP Insights] document-service POST →', docResp.status, docText.slice(0, 500));
-
-  if (!docResp.ok) {
-    throw new Error(`document-service HTTP ${docResp.status}: ${docText.slice(0, 200)}`);
+  let meta = null;
+  let docText = '';
+  for (const variant of bodyVariants) {
+    const docResp = await fetch(`${base}/sap/c4c/api/v1/document-service/documents`, {
+      method:  'POST',
+      headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body:    JSON.stringify(variant),
+    });
+    docText = await docResp.text();
+    console.log('[SAP Insights] document-service POST', JSON.stringify(variant), '→', docResp.status, docText.slice(0, 300));
+    if (docResp.ok) { meta = JSON.parse(docText); break; }
+    if (docResp.status === 401 || docResp.status === 403) throw new Error(`document-service auth error HTTP ${docResp.status}`);
+    // 400/422 → try next variant
   }
+  if (!meta) throw new Error(`document-service: all variants returned error — last: ${docText.slice(0, 200)}`);
 
-  const meta      = JSON.parse(docText);
-  const docId     = meta?.id ?? meta?.value?.[0]?.id ?? meta?.data?.id;
-  const uploadUrl = meta?.uploadUrl ?? meta?.value?.[0]?.uploadUrl ?? meta?.data?.uploadUrl
-                  ?? meta?.presignedUrl ?? meta?.signedUrl;
+  const docId     = meta?.id ?? meta?.value?.id ?? meta?.value?.[0]?.id ?? meta?.data?.id;
+  const uploadUrl = meta?.uploadUrl ?? meta?.value?.uploadUrl ?? meta?.value?.[0]?.uploadUrl
+                  ?? meta?.presignedUrl ?? meta?.signedUrl ?? meta?.data?.uploadUrl;
 
   if (!docId || !uploadUrl) {
     throw new Error(`document-service: missing id/uploadUrl — ${docText.slice(0, 200)}`);
