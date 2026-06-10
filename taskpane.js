@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.7';
+const _VERSION = '2.8';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -443,18 +443,29 @@ async function attachRichTextToEmail(settings, emailId, htmlContent) {
   console.log('[SAP Insights] S3 PUT →', s3Resp.status);
   if (!s3Resp.ok) throw new Error(`S3 upload HTTP ${s3Resp.status}`);
 
-  // ── Step C: PATCH email to set richTextDocumentId ────────────────────────
+  // ── Step C: GET email ETag, then PATCH with richTextDocumentId ──────────
+  // SAP rejects PATCH without the exact current ETag of the resource.
+  const getResp = await fetch(
+    `${base}/sap/c4c/api/v1/email-service/emails/${emailId}`,
+    { headers: { 'Authorization': auth, 'Accept': 'application/json' } }
+  );
+  const etag = getResp.headers.get('ETag') ?? getResp.headers.get('etag') ?? '*';
+  console.log('[SAP Insights] GET email for ETag →', getResp.status, 'ETag:', etag);
+
   const patchResp = await fetch(
     `${base}/sap/c4c/api/v1/email-service/emails/${emailId}`,
     {
       method:  'PATCH',
-      headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json', 'If-Match': '*' },
+      headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json', 'If-Match': etag },
       body:    JSON.stringify({ richTextDocumentId: docId }),
     }
   );
 
   console.log('[SAP Insights] PATCH email richTextDocumentId →', patchResp.status);
-  // Non-fatal if PATCH fails — the document is already linked via hostObjectId
+  if (!patchResp.ok) {
+    const pt = await patchResp.text();
+    console.warn('[SAP Insights] PATCH failed:', pt.slice(0, 200));
+  }
 
   return docId;
 }
