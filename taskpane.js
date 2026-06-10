@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.4';
+const _VERSION = '2.5';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -385,9 +385,8 @@ function wrapHtmlDocument(html) {
  * Correct flow derived from SAP KBA 3567599 + document-service API docs:
  *
  *  Step A: POST /document-service/documents
- *          { fileName, category: "39", hostObjectId: emailId, hostObjectType: "Email" }
- *          The hostObjectId/hostObjectType LINKS the document to the email entity.
- *          S3 path structure: .../documents/{tenant}/39/{emailId}/{docId}/__OriginalContent.html
+ *          { fileName: "Email.html", category: "DOCUMENT", type: "10001",
+ *            hostObjectId: emailId, hostObjectType: "Email" }
  *          Response: { id: docId, uploadUrl: "<presigned S3 PUT URL>" }
  *
  *  Step B: PUT HTML to uploadUrl — NO Authorization header (pre-signed S3 embeds it)
@@ -403,32 +402,28 @@ async function attachRichTextToEmail(settings, emailId, htmlContent) {
   const auth = basicAuthHeader(settings.user, settings.pass);
 
   // ── Step A: create document record linked to the email ──────────────────
-  // Try body variants from most specific to minimal — the 400 tells us
-  // which fields SAP rejects; we stop at the first variant that returns 2xx.
-  // category must be an INTEGER — "39" string is rejected; 39 integer matches
-  // the S3 path structure .../documents/{tenant}/39/{emailId}/{docId}/...
-  const bodyVariants = [
-    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', category: 39, isSelected: true, isDisplayDocument: false },
-    { fileName: '__OriginalContent.html', hostObjectId: emailId, hostObjectType: 'Email', category: 39 },
-    { fileName: '__OriginalContent.html', category: 39, isSelected: true, isDisplayDocument: false },
-    { fileName: '__OriginalContent.html', category: 39 },
-  ];
+  const docBody = {
+    fileName:       'Email.html',
+    category:       'DOCUMENT',
+    type:           '10001',
+    hostObjectId:   emailId,
+    hostObjectType: 'Email',
+  };
 
-  let meta = null;
-  let docText = '';
-  for (const variant of bodyVariants) {
-    const docResp = await fetch(`${base}/sap/c4c/api/v1/document-service/documents`, {
-      method:  'POST',
-      headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body:    JSON.stringify(variant),
-    });
-    docText = await docResp.text();
-    console.log('[SAP Insights] document-service POST', JSON.stringify(variant), '→', docResp.status, docText.slice(0, 300));
-    if (docResp.ok) { meta = JSON.parse(docText); break; }
+  const docResp = await fetch(`${base}/sap/c4c/api/v1/document-service/documents`, {
+    method:  'POST',
+    headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body:    JSON.stringify(docBody),
+  });
+  const docText = await docResp.text();
+  console.log('[SAP Insights] document-service POST →', docResp.status, docText.slice(0, 300));
+
+  if (!docResp.ok) {
     if (docResp.status === 401 || docResp.status === 403) throw new Error(`document-service auth error HTTP ${docResp.status}`);
-    // 400/422 → try next variant
+    throw new Error(`document-service: HTTP ${docResp.status} — ${docText.slice(0, 200)}`);
   }
-  if (!meta) throw new Error(`document-service: all variants returned error — last: ${docText.slice(0, 200)}`);
+
+  const meta = JSON.parse(docText);
 
   const docId     = meta?.id ?? meta?.value?.id ?? meta?.value?.[0]?.id ?? meta?.data?.id;
   const uploadUrl = meta?.uploadUrl ?? meta?.value?.uploadUrl ?? meta?.value?.[0]?.uploadUrl
