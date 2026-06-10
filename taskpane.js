@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '2.8';
+const _VERSION = '2.9';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -457,7 +457,7 @@ async function attachRichTextToEmail(settings, emailId, htmlContent) {
     {
       method:  'PATCH',
       headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'Accept': 'application/json', 'If-Match': etag },
-      body:    JSON.stringify({ richTextDocumentId: docId }),
+      body:    JSON.stringify({ richTextDocumentId: docId, plainContent: '' }),
     }
   );
 
