@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '1.9';
+const _VERSION = '2.0';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ async function readOutlookEmail() {
    Build SAP email payload
 ───────────────────────────────────────────────────────────────────────── */
 
-function buildEmailPayload(email, opp) {
+function buildEmailPayload(email, opp, richTextDocumentId = null) {
   const payload = {
     subject:            email.subject,
     messageId:          email.messageId,
@@ -371,6 +371,11 @@ function buildEmailPayload(email, opp) {
     ],
   };
 
+  // Link the pre-uploaded HTML document so SAP sets richTextPreSignedURL
+  if (richTextDocumentId) {
+    payload.richTextDocumentId = richTextDocumentId;
+  }
+
   return payload;
 }
 
@@ -382,63 +387,100 @@ function wrapHtmlDocument(html) {
 }
 
 /**
- * Upload HTML body to SAP using multiple strategies in order.
- * Returns an object: { ok: boolean, method: string, status?: number }
+ * PRIMARY strategy — correct 3-step approach based on SAP KBA 3567599:
  *
- * Strategy 1: PUT /{id}/richText/$value   (OData stream, standard path)
- * Strategy 2: PUT /{id}/richText          (without $value — some tenants)
- * Strategy 3: PATCH /{id} { richTextBody } (fallback JSON patch)
+ * Step 1: POST /document-service/documents
+ *         Body: { fileName, category: "39", isSelected, isDisplayDocument }
+ *         → SAP returns { id, uploadUrl } where uploadUrl is a pre-signed S3 PUT URL
+ *
+ * Step 2: PUT HTML to uploadUrl (NO auth header — pre-signed URL embeds credentials)
+ *         → SAP stores the HTML in S3, assigns richTextDocumentId
+ *
+ * Step 3: Include richTextDocumentId in the email POST payload
+ *         → SAP links the stored HTML to the email record, sets richTextPreSignedURL
+ *
+ * Category "39" is observed in the S3 path of working emails:
+ * s3://.../documents/{tenantId}/39/{emailId}/{docId}/__OriginalContent.html
+ *
+ * Returns the document UUID on success, throws on failure.
  */
-async function tryUploadRichText(settings, emailId, htmlContent) {
-  const base    = settings.url.replace(/\/$/, '');
-  const authHdr = basicAuthHeader(settings.user, settings.pass);
-  const emailPath = `${base}/sap/c4c/api/v1/email-service/emails/${emailId}`;
+async function createRichTextDocument(settings, htmlContent) {
+  const base = settings.url.replace(/\/$/, '');
+  const auth = basicAuthHeader(settings.user, settings.pass);
 
-  const putStrategies = [
-    { url: `${emailPath}/richText/$value`, label: 'PUT richText/$value' },
-    { url: `${emailPath}/richText`,        label: 'PUT richText'        },
-  ];
-
-  for (const { url, label } of putStrategies) {
-    try {
-      const res = await fetch(url, {
-        method:  'PUT',
-        headers: {
-          'Authorization': authHdr,
-          'Content-Type':  'text/html; charset=utf-8',
-        },
-        body: htmlContent,
-      });
-      console.log(`[SAP Insights] ${label} → ${res.status}`);
-      if (res.ok) return { ok: true, method: label };
-      // 404/405 means this endpoint doesn't exist — try next strategy
-      if (res.status === 404 || res.status === 405) continue;
-      // Other non-ok status — surface the error code
-      return { ok: false, method: label, status: res.status };
-    } catch (e) {
-      console.warn(`[SAP Insights] ${label} network error:`, e.message);
-    }
-  }
-
-  // Strategy 3: PATCH the email record with richTextBody as a JSON field
-  try {
-    const res = await fetch(emailPath, {
-      method:  'PATCH',
+  // Step 1: Create document record in SAP's document service
+  const createResp = await fetch(
+    `${base}/sap/c4c/api/v1/document-service/documents`,
+    {
+      method:  'POST',
       headers: {
-        'Authorization': authHdr,
+        'Authorization': auth,
         'Content-Type':  'application/json',
         'Accept':        'application/json',
       },
-      body: JSON.stringify({ richTextBody: htmlContent }),
-    });
-    console.log(`[SAP Insights] PATCH richTextBody → ${res.status}`);
-    if (res.ok) return { ok: true, method: 'PATCH richTextBody' };
-    return { ok: false, method: 'PATCH richTextBody', status: res.status };
-  } catch (e) {
-    console.warn('[SAP Insights] PATCH richTextBody network error:', e.message);
+      body: JSON.stringify({
+        fileName:          '__OriginalContent.html',
+        category:          '39',
+        isSelected:        true,
+        isDisplayDocument: false,
+      }),
+    }
+  );
+
+  if (!createResp.ok) {
+    const body = await createResp.text().catch(() => '');
+    throw new Error(`document-service POST HTTP ${createResp.status}: ${body.slice(0, 300)}`);
   }
 
-  return { ok: false, method: 'all strategies failed' };
+  const meta      = await createResp.json();
+  const docId     = meta?.id ?? meta?.value?.[0]?.id ?? meta?.data?.id;
+  const uploadUrl = meta?.uploadUrl ?? meta?.value?.[0]?.uploadUrl ?? meta?.data?.uploadUrl;
+
+  console.log('[SAP Insights] document-service response:', JSON.stringify(meta).slice(0, 400));
+
+  if (!docId || !uploadUrl) {
+    throw new Error(`document-service: no id/uploadUrl in response — ${JSON.stringify(meta).slice(0, 300)}`);
+  }
+
+  // Step 2: Upload HTML to the pre-signed S3 URL — NO Authorization header
+  const s3Resp = await fetch(uploadUrl, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    body:    htmlContent,
+  });
+
+  if (!s3Resp.ok) {
+    throw new Error(`S3 HTML upload HTTP ${s3Resp.status}`);
+  }
+
+  console.log('[SAP Insights] HTML uploaded to S3 for document', docId);
+  return docId;
+}
+
+/**
+ * FALLBACK: try PUT to email stream property endpoints (in case tenant
+ * supports a direct upload rather than the document-service flow).
+ */
+async function tryDirectRichTextUpload(settings, emailId, htmlContent) {
+  const base      = settings.url.replace(/\/$/, '');
+  const auth      = basicAuthHeader(settings.user, settings.pass);
+  const emailBase = `${base}/sap/c4c/api/v1/email-service/emails/${emailId}`;
+
+  for (const url of [`${emailBase}/richText/$value`, `${emailBase}/richText`]) {
+    try {
+      const res = await fetch(url, {
+        method:  'PUT',
+        headers: { 'Authorization': auth, 'Content-Type': 'text/html; charset=utf-8' },
+        body:    htmlContent,
+      });
+      console.log(`[SAP Insights] fallback PUT ${url} → ${res.status}`);
+      if (res.ok) return true;
+      if (res.status !== 404 && res.status !== 405) return false;
+    } catch (e) {
+      console.warn('[SAP Insights] fallback PUT error:', e.message);
+    }
+  }
+  return false;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -625,35 +667,40 @@ const app = (() => {
         throw new Error('Could not read email data: ' + err.message);
       }
 
-      // Step 2: POST email metadata to SAP
-      const payload = buildEmailPayload(emailData, _selectedOpp);
-      const basePath = '/sap/c4c/api/v1/email-service/emails';
-      const result = await sapFetch(_settings, basePath, {
+      // Prepare full HTML document from email body
+      const htmlDoc = wrapHtmlDocument(
+        emailData.richTextBody || plainToHtml(emailData.plainContent)
+      );
+
+      // Step 2 (PRIMARY): Upload HTML via document-service → get richTextDocumentId
+      //   POST /document-service/documents → { id, uploadUrl }
+      //   PUT  HTML to uploadUrl (pre-signed S3, no auth)
+      //   Include richTextDocumentId in the email POST so SAP links them
+      let richTextDocumentId = null;
+      let htmlStatus = 'טקסט בלבד';
+
+      try {
+        richTextDocumentId = await createRichTextDocument(_settings, htmlDoc);
+        htmlStatus = 'HTML ✔ (document-service)';
+      } catch (docErr) {
+        console.warn('[SAP Insights] document-service failed:', docErr.message);
+        htmlStatus = `document-service נכשל: ${docErr.message.slice(0, 80)}`;
+      }
+
+      // Step 3: POST email — richTextDocumentId included if document was created
+      const payload = buildEmailPayload(emailData, _selectedOpp, richTextDocumentId);
+      const result  = await sapFetch(_settings, '/sap/c4c/api/v1/email-service/emails', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body:   JSON.stringify(payload),
       });
 
+      const emailId = result?.id ?? result?.value?.[0]?.id ?? result?.data?.id;
       console.log('[SAP Insights] POST email response:', JSON.stringify(result));
 
-      // Step 3: Upload HTML — try multiple strategies and surface the result to the user
-      const emailId = result?.id ?? result?.value?.[0]?.id ?? result?.data?.id;
-      let htmlStatus = 'לא הועלה (אין מזהה מייל)';
-
-      if (emailId) {
-        // Ensure a complete HTML document (not a fragment)
-        const rawHtml  = emailData.richTextBody || plainToHtml(emailData.plainContent);
-        const htmlDoc  = wrapHtmlDocument(rawHtml);
-        const uploaded = await tryUploadRichText(_settings, emailId, htmlDoc);
-
-        if (uploaded.ok) {
-          htmlStatus = `HTML ✔ (${uploaded.method})`;
-          console.log('[SAP Insights] richText uploaded via', uploaded.method, 'for email', emailId);
-        } else {
-          htmlStatus = `HTML נכשל (${uploaded.method}${uploaded.status ? ' HTTP ' + uploaded.status : ''})`;
-          console.warn('[SAP Insights] richText upload failed:', uploaded);
-        }
-      } else {
-        console.warn('[SAP Insights] No email id in POST response — cannot upload richText. Response:', result);
+      // Step 4 (FALLBACK): If document-service failed, try PUT to email stream property
+      if (!richTextDocumentId && emailId) {
+        const ok = await tryDirectRichTextUpload(_settings, emailId, htmlDoc);
+        htmlStatus = ok ? 'HTML ✔ (PUT fallback)' : 'HTML נכשל — רק טקסט';
       }
 
       showStatus(
