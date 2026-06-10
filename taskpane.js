@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '1.8';
+const _VERSION = '1.9';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -95,6 +95,10 @@ async function sapFetch(settings, path, options = {}) {
     throw new Error(msg);
   }
 
+  // 204 No Content or non-JSON responses — return null rather than throwing
+  if (response.status === 204) return null;
+  const ct = response.headers.get('content-type') ?? '';
+  if (!ct.includes('json')) return null;
   return response.json();
 }
 
@@ -370,32 +374,71 @@ function buildEmailPayload(email, opp) {
   return payload;
 }
 
+/** Ensure the HTML being uploaded to SAP is a complete document, not a fragment. */
+function wrapHtmlDocument(html) {
+  if (!html) return null;
+  if (/^\s*<!DOCTYPE/i.test(html) || /^\s*<html/i.test(html)) return html;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`;
+}
+
 /**
- * Step 2 of saving: upload HTML to the OData stream property of the new email.
- * SAP stores this in its document service (S3) and returns richTextPreSignedURL.
+ * Upload HTML body to SAP using multiple strategies in order.
+ * Returns an object: { ok: boolean, method: string, status?: number }
  *
- * Endpoint: PUT /email-service/emails/{id}/richText/$value
- * Content-Type: text/html
+ * Strategy 1: PUT /{id}/richText/$value   (OData stream, standard path)
+ * Strategy 2: PUT /{id}/richText          (without $value — some tenants)
+ * Strategy 3: PATCH /{id} { richTextBody } (fallback JSON patch)
  */
-async function uploadEmailRichText(settings, emailId, htmlContent) {
-  const base = settings.url.replace(/\/$/, '');
-  const url  = `${base}/sap/c4c/api/v1/email-service/emails/${emailId}/richText/$value`;
+async function tryUploadRichText(settings, emailId, htmlContent) {
+  const base    = settings.url.replace(/\/$/, '');
+  const authHdr = basicAuthHeader(settings.user, settings.pass);
+  const emailPath = `${base}/sap/c4c/api/v1/email-service/emails/${emailId}`;
 
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Authorization':  basicAuthHeader(settings.user, settings.pass),
-      'Content-Type':   'text/html; charset=utf-8',
-      'Accept':         'application/json',
-    },
-    body: htmlContent,
-  });
+  const putStrategies = [
+    { url: `${emailPath}/richText/$value`, label: 'PUT richText/$value' },
+    { url: `${emailPath}/richText`,        label: 'PUT richText'        },
+  ];
 
-  if (!response.ok) {
-    let msg = `HTTP ${response.status}`;
-    try { const b = await response.json(); msg = b?.error?.message?.value ?? b?.message ?? msg; } catch (_) {}
-    throw new Error(msg);
+  for (const { url, label } of putStrategies) {
+    try {
+      const res = await fetch(url, {
+        method:  'PUT',
+        headers: {
+          'Authorization': authHdr,
+          'Content-Type':  'text/html; charset=utf-8',
+        },
+        body: htmlContent,
+      });
+      console.log(`[SAP Insights] ${label} → ${res.status}`);
+      if (res.ok) return { ok: true, method: label };
+      // 404/405 means this endpoint doesn't exist — try next strategy
+      if (res.status === 404 || res.status === 405) continue;
+      // Other non-ok status — surface the error code
+      return { ok: false, method: label, status: res.status };
+    } catch (e) {
+      console.warn(`[SAP Insights] ${label} network error:`, e.message);
+    }
   }
+
+  // Strategy 3: PATCH the email record with richTextBody as a JSON field
+  try {
+    const res = await fetch(emailPath, {
+      method:  'PATCH',
+      headers: {
+        'Authorization': authHdr,
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+      },
+      body: JSON.stringify({ richTextBody: htmlContent }),
+    });
+    console.log(`[SAP Insights] PATCH richTextBody → ${res.status}`);
+    if (res.ok) return { ok: true, method: 'PATCH richTextBody' };
+    return { ok: false, method: 'PATCH richTextBody', status: res.status };
+  } catch (e) {
+    console.warn('[SAP Insights] PATCH richTextBody network error:', e.message);
+  }
+
+  return { ok: false, method: 'all strategies failed' };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -582,7 +625,7 @@ const app = (() => {
         throw new Error('Could not read email data: ' + err.message);
       }
 
-      // Step 2: POST email metadata to SAP (plainContent only, no HTML in body)
+      // Step 2: POST email metadata to SAP
       const payload = buildEmailPayload(emailData, _selectedOpp);
       const basePath = '/sap/c4c/api/v1/email-service/emails';
       const result = await sapFetch(_settings, basePath, {
@@ -592,26 +635,31 @@ const app = (() => {
 
       console.log('[SAP Insights] POST email response:', JSON.stringify(result));
 
-      // Step 3: Upload HTML as OData stream property so SAP stores it and sets
-      //         richTextPreSignedURL / richTextDocumentId on the email record.
+      // Step 3: Upload HTML — try multiple strategies and surface the result to the user
       const emailId = result?.id ?? result?.value?.[0]?.id ?? result?.data?.id;
+      let htmlStatus = 'לא הועלה (אין מזהה מייל)';
+
       if (emailId) {
-        const htmlContent = emailData.richTextBody || plainToHtml(emailData.plainContent);
-        try {
-          await uploadEmailRichText(_settings, emailId, htmlContent);
-          console.log('[SAP Insights] richText uploaded for email', emailId);
-        } catch (htmlErr) {
-          // Non-fatal: email is already saved; just no rich text
-          console.warn('[SAP Insights] richText upload failed:', htmlErr.message);
+        // Ensure a complete HTML document (not a fragment)
+        const rawHtml  = emailData.richTextBody || plainToHtml(emailData.plainContent);
+        const htmlDoc  = wrapHtmlDocument(rawHtml);
+        const uploaded = await tryUploadRichText(_settings, emailId, htmlDoc);
+
+        if (uploaded.ok) {
+          htmlStatus = `HTML ✔ (${uploaded.method})`;
+          console.log('[SAP Insights] richText uploaded via', uploaded.method, 'for email', emailId);
+        } else {
+          htmlStatus = `HTML נכשל (${uploaded.method}${uploaded.status ? ' HTTP ' + uploaded.status : ''})`;
+          console.warn('[SAP Insights] richText upload failed:', uploaded);
         }
       } else {
-        console.warn('[SAP Insights] No email id in POST response — skipping richText upload. Response:', result);
+        console.warn('[SAP Insights] No email id in POST response — cannot upload richText. Response:', result);
       }
 
       showStatus(
         'success',
         'המייל נשמר ב-SAP',
-        `מזהה מייל: ${emailId || '—'} | הזדמנות: ${oppName(_selectedOpp)} (${oppDisplayId(_selectedOpp)})`
+        `מזהה: ${emailId || '—'} | ${htmlStatus} | הזדמנות: ${oppName(_selectedOpp)}`
       );
 
       _selectedOpp = null;
