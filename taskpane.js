@@ -4,7 +4,7 @@
 
 'use strict';
 
-const _VERSION = '1.7';
+const _VERSION = '1.8';
 console.log('[SAP Insights] taskpane.js version', _VERSION);
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ function loadSettings() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (s.url && s.user && s.pass) return s;
+    if (s.url && s.user && s.pass) return s;  // salesCycleId is optional
   } catch (_) { /* ignore */ }
   return null;
 }
@@ -103,7 +103,12 @@ async function fetchOpportunities(settings, searchQuery = '') {
   const params = new URLSearchParams();
 
   params.set('$top', '100');
-  params.set('$select', 'id,displayId,name,OwnerName,ownerName,owner,LifeCycleStatusCode');
+  params.set('$select', 'id,displayId,name,OwnerName,ownerName,owner,LifeCycleStatusCode,salesCycleCode');
+
+  // Filter by Sales Cycle if configured
+  if (settings.salesCycleId?.trim()) {
+    params.set('$filter', `salesCycleCode eq '${settings.salesCycleId.trim()}'`);
+  }
 
   if (searchQuery.trim()) {
     params.set('$search', searchQuery.trim());
@@ -114,16 +119,23 @@ async function fetchOpportunities(settings, searchQuery = '') {
   const json = await sapFetch(settings, path);
   const all = json?.value ?? json?.data?.value ?? [];
 
+  // Client-side search filter (fallback if $search isn't supported)
+  let results = all;
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
-    return all.filter(o => {
+    results = all.filter(o => {
       const name   = (o.name  ?? o.Name  ?? '').toLowerCase();
       const dispId = String(o.displayId ?? o.DisplayID ?? o.id ?? '').toLowerCase();
       return name.includes(q) || dispId.includes(q);
     });
   }
 
-  return all;
+  // Sort A–Z by name
+  results.sort((a, b) =>
+    oppName(a).localeCompare(oppName(b), undefined, { sensitivity: 'base' })
+  );
+
+  return results;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -150,7 +162,13 @@ function oppUUID(o) {
 }
 
 function oppOwner(o) {
-  return oppField(o, 'OwnerName', 'ownerName', 'owner', 'ResponsibleName', 'SalesRepresentativeName') ?? '—';
+  const raw = oppField(o, 'OwnerName', 'ownerName', 'ResponsibleName', 'SalesRepresentativeName', 'owner');
+  if (raw == null) return null;
+  // SAP sometimes returns owner as a complex object — extract the display string
+  if (typeof raw === 'object') {
+    return raw.content ?? raw.name ?? raw.displayName ?? raw.fullName ?? null;
+  }
+  return String(raw) || null;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -407,9 +425,10 @@ const app = (() => {
     el('refresh-btn').style.display = 'none';
 
     if (_settings) {
-      el('cfg-url').value  = _settings.url  ?? '';
-      el('cfg-user').value = _settings.user ?? '';
-      el('cfg-pass').value = _settings.pass ?? '';
+      el('cfg-url').value         = _settings.url          ?? '';
+      el('cfg-user').value        = _settings.user         ?? '';
+      el('cfg-pass').value        = _settings.pass         ?? '';
+      el('cfg-sales-cycle').value = _settings.salesCycleId ?? '';
     }
 
     el('cancel-settings-btn').style.display = _settings ? '' : 'none';
@@ -433,13 +452,13 @@ const app = (() => {
 
       const name   = escHtml(oppName(opp));
       const dispId = escHtml(oppDisplayId(opp));
-      const owner  = escHtml(oppOwner(opp));
+      const owner  = oppOwner(opp);
 
       item.innerHTML = `
         <div class="opp-name" title="${name}">${name}</div>
         <div class="opp-meta">
           ${dispId ? `<span class="opp-tag id">ID: ${dispId}</span>` : ''}
-          ${owner !== '—' ? `<span class="opp-tag owner">👤 ${owner}</span>` : ''}
+          ${owner ? `<span class="opp-tag owner">${escHtml(owner)}</span>` : ''}
         </div>`;
 
       item.addEventListener('click', () => selectOpportunity(opp, item));
@@ -539,7 +558,7 @@ const app = (() => {
       el(id).style.borderColor = '';
     });
 
-    _settings = { url, user, pass };
+    _settings = { url, user, pass, salesCycleId: el('cfg-sales-cycle').value.trim() };
     saveSettingsToStorage(_settings);
     showMainView();
     loadOpportunities();
@@ -552,7 +571,7 @@ const app = (() => {
     if (!_settings) { showSettingsView(); return; }
 
     el('save-btn').disabled = true;
-    showStatus('saving', 'Saving to SAP…', `Linking to: ${oppName(_selectedOpp)}`, true);
+    showStatus('saving', 'שומר ב-SAP...', `מקשר ל: ${oppName(_selectedOpp)}`, true);
 
     try {
       // Step 1: Read Outlook email
@@ -591,8 +610,8 @@ const app = (() => {
 
       showStatus(
         'success',
-        'Email saved to SAP',
-        `Linked to opportunity: ${oppName(_selectedOpp)} (${oppDisplayId(_selectedOpp)})`
+        'המייל נשמר ב-SAP',
+        `מזהה מייל: ${emailId || '—'} | הזדמנות: ${oppName(_selectedOpp)} (${oppDisplayId(_selectedOpp)})`
       );
 
       _selectedOpp = null;

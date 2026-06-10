@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
-  <title>SAP Sales Cloud Insights</title>
+  <title>פרויקטים / הזדמנויות</title>
 
   <!-- Office.js — must load first, before any other scripts -->
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
@@ -115,13 +115,13 @@
       gap: 10px;
     }
 
-    /* ── Search ──────────────────────────────────────────────── */
+    /* ── Search — RTL: icon on right ─────────────────────────── */
     .search-wrap {
       position: relative;
     }
     .search-wrap svg {
       position: absolute;
-      left: 9px;
+      right: 9px;
       top: 50%;
       transform: translateY(-50%);
       color: var(--text-muted);
@@ -129,7 +129,7 @@
     }
     #search-input {
       width: 100%;
-      padding: 8px 10px 8px 32px;
+      padding: 8px 32px 8px 10px;   /* right padding leaves room for icon */
       border: 1.5px solid var(--border);
       border-radius: var(--radius-md);
       font-size: 13px;
@@ -138,6 +138,7 @@
       background: var(--bg-surface);
       outline: none;
       transition: border-color 0.15s;
+      text-align: right;
     }
     #search-input:focus { border-color: var(--sap-blue); }
     #search-input::placeholder { color: var(--text-muted); }
@@ -180,11 +181,12 @@
       background: var(--sap-blue-light);
       box-shadow: 0 0 0 2px rgba(0,112,195,0.18);
     }
+    /* RTL: checkmark on left (= end of text) */
     .opp-item.selected::after {
       content: '✓';
       position: absolute;
       top: 8px;
-      right: 10px;
+      left: 10px;
       color: var(--sap-blue);
       font-weight: 700;
       font-size: 14px;
@@ -195,7 +197,7 @@
       font-size: 13px;
       color: var(--text-primary);
       margin-bottom: 4px;
-      padding-right: 18px;
+      padding-left: 18px;   /* space for checkmark on left */
     }
 
     .opp-meta {
@@ -213,8 +215,8 @@
       border-radius: 20px;
       font-weight: 500;
     }
-    .opp-tag.id    { background: #f0f0f0;      color: var(--text-secondary); }
-    .opp-tag.owner { background: #e8f4fb;      color: var(--sap-blue-dark); }
+    .opp-tag.id    { background: #f0f0f0; color: var(--text-secondary); }
+    .opp-tag.owner { background: #e8f4fb; color: var(--sap-blue-dark); }
 
     /* ── States: loading / empty / error ────────────────────── */
     .state-box {
@@ -337,6 +339,7 @@
       letter-spacing: 0.05em;
     }
 
+    /* Settings inputs are LTR (technical values: URLs, IDs) */
     .field-group input {
       width: 100%;
       padding: 8px 10px;
@@ -348,6 +351,8 @@
       background: var(--bg-surface);
       outline: none;
       transition: border-color 0.15s;
+      direction: ltr;
+      text-align: left;
     }
     .field-group input:focus { border-color: var(--sap-blue); }
     .field-group input::placeholder { color: var(--text-muted); }
@@ -383,7 +388,7 @@
     .btn-secondary { background: #f3f2f1; color: var(--text-primary); }
     .btn-secondary:hover { background: #e1dfdd; }
 
-    /* ── CORS warning box ────────────────────────────────────── */
+    /* ── Info / warning box ──────────────────────────────────── */
     .info-box {
       background: #fff4ce;
       border: 1px solid #f0d060;
@@ -415,17 +420,17 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M6.5 20Q4.22 20 2.61 18.43Q1 16.85 1 14.58Q1 12.63 2.17 11.1Q3.35 9.57 5.25 9.15Q5.88 6.85 7.75 5.43Q9.63 4 12 4Q14.93 4 16.96 5.96Q19 7.93 19 10.85Q20.73 11.09 21.86 12.31Q23 13.52 23 15.25Q23 17.1 21.7 18.3Q20.4 19.5 18.5 19.5L13 19.5L13 12.85L14.6 14.4L16 13L12 9L8 13L9.4 14.4L11 12.85L11 19.5Z" fill="white"/>
       </svg>
-      SAP Sales Cloud Insights
+      פרויקטים / הזדמנויות
     </div>
     <div class="header-actions">
       <!-- Refresh button (main view only) -->
-      <button class="icon-btn" id="refresh-btn" title="Refresh opportunities" onclick="app.loadOpportunities()">
+      <button class="icon-btn" id="refresh-btn" title="רענן הזדמנויות" onclick="app.loadOpportunities()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
         </svg>
       </button>
       <!-- Settings button -->
-      <button class="icon-btn" id="settings-btn" title="Settings" onclick="app.showSettings()">
+      <button class="icon-btn" id="settings-btn" title="הגדרות" onclick="app.showSettings()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
         </svg>
@@ -439,7 +444,7 @@
   <div id="main-view" class="view">
     <div id="main-content">
 
-      <!-- Search -->
+      <!-- Search (RTL: icon on right) -->
       <div class="search-wrap">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
@@ -447,7 +452,7 @@
         <input
           type="search"
           id="search-input"
-          placeholder="Search opportunities..."
+          placeholder="חיפוש הזדמנויות..."
           autocomplete="off"
           oninput="app.onSearchInput(this.value)"
         />
@@ -459,7 +464,7 @@
       <!-- Loading state -->
       <div id="loading-state" class="state-box">
         <div class="spinner"></div>
-        <span>Loading opportunities…</span>
+        <span>טוען הזדמנויות...</span>
       </div>
 
       <!-- Empty state -->
@@ -467,7 +472,7 @@
         <svg width="28" height="28" viewBox="0 0 24 24" fill="#c8c6c4">
           <path d="M20 6h-2.18c.07-.44.18-.86.18-1.3C18 2.12 15.88 0 13.3 0c-1.3 0-2.56.52-3.48 1.44L8 3.16 6.18 1.44A4.919 4.919 0 0 0 2.7 0C.12 0-2 2.12-2 4.7c0 .44.11.86.18 1.3H-2c-1.1 0-1.99.9-1.99 2v3c0 .5.21.95.54 1.28L-2 14v5c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-5l1.45-2.72c.33-.33.54-.78.54-1.28V8c.01-1.1-.88-2-1.99-2z"/>
         </svg>
-        <span id="empty-msg">No opportunities found.</span>
+        <span id="empty-msg">לא נמצאו הזדמנויות.</span>
       </div>
 
       <!-- Error state -->
@@ -475,13 +480,13 @@
         <svg width="28" height="28" viewBox="0 0 24 24" fill="#a80000">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
         </svg>
-        <span id="error-msg">Failed to load opportunities.</span>
+        <span id="error-msg">טעינת ההזדמנויות נכשלה.</span>
       </div>
 
       <!-- Opportunity list -->
       <div id="opp-section" class="hidden">
-        <div class="section-label" id="opp-count-label">Opportunities</div>
-        <div id="opp-list" role="listbox" aria-label="Opportunities"></div>
+        <div class="section-label" id="opp-count-label">הזדמנויות</div>
+        <div id="opp-list" role="listbox" aria-label="הזדמנויות"></div>
       </div>
 
     </div><!-- /main-content -->
@@ -492,7 +497,7 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
           <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
         </svg>
-        Save Email to SAP
+        שמור מייל בהזמנות / פרויקט
       </button>
     </div>
   </div><!-- /main-view -->
@@ -503,7 +508,7 @@
   <div id="settings-view" class="view hidden">
     <div id="settings-content">
 
-      <div class="settings-heading">SAP Sales Cloud V2 Connection</div>
+      <div class="settings-heading">חיבור SAP Sales Cloud V2</div>
 
       <div class="field-group">
         <label for="cfg-url">API Base URL</label>
@@ -511,7 +516,7 @@
           placeholder="https://my-tenant.crm.cloud.sap"
           autocomplete="off"
           spellcheck="false"/>
-        <span class="field-hint">No trailing slash. E.g. https://my999999.crm.cloud.sap</span>
+        <span class="field-hint">ללא לוכסן בסוף. לדוגמה: https://my999999.crm.cloud.sap</span>
       </div>
 
       <div class="field-group">
@@ -529,18 +534,28 @@
           autocomplete="current-password"/>
       </div>
 
+      <div class="settings-heading" style="margin-top:4px">סינון הזדמנויות</div>
+
+      <div class="field-group">
+        <label for="cfg-sales-cycle">Sales Cycle ID (אופציונלי)</label>
+        <input type="text" id="cfg-sales-cycle"
+          placeholder="לדוגמה: 1 ,2 ,3"
+          autocomplete="off"
+          spellcheck="false"/>
+        <span class="field-hint">הזן מזהה מחזור מכירות להצגת הזדמנויות ספציפיות בלבד. השאר ריק להצגת כל ההזדמנויות.</span>
+      </div>
+
       <div class="info-box">
-        <strong>⚠ CORS Notice</strong>
-        Direct browser-to-SAP API calls require your SAP tenant to allow the
-        add-in's origin in its CORS policy, or you need a server-side proxy.
-        Contact your SAP administrator if requests are blocked.
+        <strong>⚠ הערת CORS</strong>
+        קריאות API ישירות מהדפדפן ל-SAP דורשות הגדרת CORS בטנאנט SAP שלך,
+        או שימוש ב-Proxy. פנה למנהל SAP שלך אם הבקשות נחסמות.
       </div>
 
     </div>
 
     <div id="settings-footer">
-      <button class="btn btn-secondary" id="cancel-settings-btn" onclick="app.cancelSettings()">Cancel</button>
-      <button class="btn btn-primary" onclick="app.saveSettings()">Save &amp; Connect</button>
+      <button class="btn btn-secondary" id="cancel-settings-btn" onclick="app.cancelSettings()">ביטול</button>
+      <button class="btn btn-primary" onclick="app.saveSettings()">שמור והתחבר</button>
     </div>
   </div><!-- /settings-view -->
 
